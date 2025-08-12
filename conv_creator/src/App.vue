@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import DiscussionGraph from './components/graph/DiscussionGraph.vue'
 import TelegramChat from './components/chat/TelegramChat.vue'
+import { useUsers } from './composables/useUsers'
 
 interface ChatMessage {
   id: number
@@ -10,8 +11,21 @@ interface ChatMessage {
   time: string
 }
 
-// Sample messages for the chat simulation
-const messages = ref<ChatMessage[]>([])
+const { getThesisStatement, getRandomPersona } = useUsers()
+
+// Initialize messages with the thesis statement as the first message
+const thesisAuthor = getRandomPersona()
+const messages = ref<ChatMessage[]>([
+  {
+    id: 1,
+    sender: thesisAuthor.name,
+    text: getThesisStatement(),
+    time: new Date(Date.now() - 120000).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  },
+])
 
 const chatInputValue = ref('')
 
@@ -61,12 +75,53 @@ const handleAddFromGraph = (messageData: {
   display: flex;
   height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 0; /* Allow flex children to shrink */
+}
+
+/* Give the graph section flexible width */
+.app-container > :first-child {
+  flex: 1;
+  min-width: 0; /* Allow shrinking below content width */
+  overflow: hidden; /* Prevent content from breaking layout */
+}
+
+.app-container > :last-child {
+  flex: 0 0 320px; /* Fixed width for chat, but allow it to shrink on very small screens */
+  min-width: 280px;
 }
 
 /* Responsive design */
+@media (max-width: 1200px) {
+  .app-container > :last-child {
+    flex: 0 0 280px;
+  }
+}
+
 @media (max-width: 768px) {
   .app-container {
     flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .app-container > :first-child {
+    flex: 1;
+    min-height: 60vh;
+  }
+
+  .app-container > :last-child {
+    flex: 0 0 40vh;
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-container > :first-child {
+    min-height: 50vh;
+  }
+
+  .app-container > :last-child {
+    flex: 0 0 50vh;
   }
 }
 </style>

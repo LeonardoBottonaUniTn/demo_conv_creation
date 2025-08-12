@@ -88,36 +88,38 @@ const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
 .tree-view {
   display: flex;
   flex-direction: column;
-  min-height: 600px;
+  min-height: 500px;
   position: relative;
+  height: 100%;
 }
 
 .tree-thesis {
   display: flex;
   justify-content: center;
-  margin-bottom: 50px;
+  margin-bottom: 30px;
   position: relative;
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .tree-branches {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  gap: 40px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  justify-items: center;
+  flex: 1;
+  align-content: start;
+  padding: 0 10px;
   position: relative;
   z-index: 5;
-  margin-top: 20px;
 }
 
 .branch-column {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 200px;
   max-width: 220px;
-  flex: 0 1 auto;
+  width: 100%;
 }
 
 .branch-header {
@@ -133,6 +135,7 @@ const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
   align-items: center;
   justify-content: center;
   gap: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .expanded-indicator {
@@ -156,6 +159,7 @@ const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
   flex-direction: column;
   gap: 10px;
   align-items: center;
+  width: 100%;
 }
 
 :deep(.tree-node) {
@@ -163,9 +167,11 @@ const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
   position: relative;
   z-index: 5;
   max-width: 180px;
+  width: 100%;
   font-size: 12px;
   padding: 12px;
   transform: none !important;
+  box-sizing: border-box;
 }
 
 :deep(.tree-node:hover) {
@@ -220,6 +226,86 @@ const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .tree-branches {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 15px;
+  }
+
+  .branch-column {
+    max-width: 180px;
+  }
+
+  :deep(.tree-node) {
+    max-width: 160px;
+    font-size: 11px;
+    padding: 10px;
+  }
+}
+
+@media (max-width: 900px) {
+  .tree-branches {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .branch-column {
+    max-width: 160px;
+  }
+
+  :deep(.tree-node) {
+    max-width: 140px;
+    font-size: 10px;
+    padding: 8px;
+  }
+
+  .tree-thesis {
+    margin-bottom: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .tree-view {
+    min-height: 400px;
+  }
+
+  .tree-branches {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
+    padding: 0 5px;
+  }
+
+  .branch-header {
+    font-size: 11px;
+    padding: 6px 12px;
+    min-width: 90px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tree-branches {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .branch-column {
+    max-width: 140px;
+  }
+
+  :deep(.tree-node) {
+    max-width: 120px;
+    font-size: 9px;
+    padding: 6px;
+  }
+
+  .branch-header {
+    font-size: 10px;
+    padding: 5px 10px;
+    min-width: 80px;
   }
 }
 </style>

@@ -60,6 +60,7 @@ const validBranches = computed(() => {
   pointer-events: none;
   z-index: 1;
   overflow: visible;
+  min-height: 100%;
 }
 
 .tree-connection {
@@ -80,6 +81,17 @@ const validBranches = computed(() => {
   }
   100% {
     stroke-dashoffset: 10;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tree-connection {
+    stroke-width: 1.5;
+  }
+
+  .expanded-connection {
+    stroke-width: 1;
   }
 }
 </style>

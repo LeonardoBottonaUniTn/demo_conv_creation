@@ -150,12 +150,15 @@ onMounted(() => {
 
 <style scoped>
 .graph-section {
-  flex: 3;
+  flex: 1;
   padding: 20px;
   background-color: #f8f9fa;
   border-right: 2px solid #e9ecef;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .graph-header {
@@ -165,6 +168,7 @@ onMounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
+  flex-shrink: 0;
 }
 
 .graph-header h2 {
@@ -176,11 +180,12 @@ onMounted(() => {
 .graph-container {
   background: white;
   border-radius: 8px;
-  padding: 30px;
+  padding: 20px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  height: calc(100vh - 200px);
   position: relative;
   overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .loading,
@@ -204,14 +209,43 @@ onMounted(() => {
 }
 
 /* Responsive design */
+@media (max-width: 1200px) {
+  .graph-container {
+    padding: 15px;
+  }
+
+  .graph-header h2 {
+    font-size: 20px;
+  }
+}
+
 @media (max-width: 768px) {
   .graph-section {
-    flex: 2;
+    padding: 15px;
   }
 
   .graph-header {
     flex-direction: column;
     align-items: stretch;
+    margin-bottom: 15px;
+  }
+
+  .graph-container {
+    padding: 10px;
+  }
+
+  .graph-header h2 {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .graph-section {
+    padding: 10px;
+  }
+
+  .graph-container {
+    padding: 8px;
   }
 }
 </style>
