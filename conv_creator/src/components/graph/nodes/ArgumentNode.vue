@@ -77,7 +77,7 @@ const handleAddToChat = () => {
 }
 
 .argument-node:hover {
-  transform: translateX(-50%) translateY(-5px);
+  transform: translateY(-5px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
 }
 

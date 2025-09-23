@@ -1,16 +1,14 @@
 <template>
   <div class="single-branch-view">
-    <ArgumentNode
-      v-for="(node, index) in nodes"
-      :key="node.id"
-      :node="node"
-      :max-text-length="100"
-      :node-classes="node.type === 'thesis' ? ['root-node'] : []"
-      :style="getSingleBranchPosition(index)"
-      :show-expand-hint="node.text.length > 100"
-      @node-click="emit('selectNode', $event)"
-    />
-
+    <div v-for="(node, index) in nodes" :key="node.id" class="argument-node-wrapper">
+      <ArgumentNode
+        :node="node"
+        :max-text-length="100"
+        :node-classes="node.type === 'thesis' ? ['root-node'] : []"
+        :show-expand-hint="node.text.length > 100"
+        @node-click="emit('selectNode', $event)"
+      />
+    </div>
     <!-- Connection lines for single branch -->
     <SingleBranchConnections
       v-if="nodes.length > 1"
@@ -43,9 +41,29 @@ const emit = defineEmits<Emits>()
 
 <style scoped>
 .single-branch-view {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
   min-height: 100%;
 }
+
+.argument-node-wrapper {
+  margin-bottom: 24px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/*
+  To center nodes horizontally, getSingleBranchPosition(index) should return:
+  {
+    position: 'absolute',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    top: `${calculatedTop}px`
+  }
+*/
 
 :deep(.argument-node) {
   max-width: 300px;

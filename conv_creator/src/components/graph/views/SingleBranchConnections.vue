@@ -8,6 +8,7 @@
       :x2="getSingleConnectionEnd(index + 1).x"
       :y2="getSingleConnectionEnd(index + 1).y"
       :class="`connection-line connection-${node.type}`"
+      stroke-linecap="round"
     />
   </svg>
 </template>
@@ -24,9 +25,9 @@ interface Props {
 
 const props = defineProps<Props>()
 
-// Skip first line for thesis (slice from index 2)
+// Each line connects node i-1 to node i (skip first node)
 const connectableNodes = computed(() => {
-  return props.nodes.slice(2)
+  return props.nodes.slice(1)
 })
 </script>
 

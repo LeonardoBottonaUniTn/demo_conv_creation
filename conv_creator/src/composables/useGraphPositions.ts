@@ -63,25 +63,40 @@ export function useGraphPositions(graphContainer: Ref<HTMLElement | undefined>) 
     }
   }
 
+  // Node card dimensions (should match ArgumentNode.vue CSS)
+  const NODE_WIDTH = 300
+  const NODE_HEIGHT = 80
+  const VERTICAL_SPACING = 120
+  const TOP_OFFSET = 50
+
+  // Helper to get horizontal center of the container
+  function getContainerCenterX() {
+    const container = graphContainer.value
+    if (!container) return window.innerWidth / 2
+    const rect = container.getBoundingClientRect()
+    return rect.left + container.clientWidth / 2 - rect.left
+  }
+
   const getSingleBranchPosition = (index: number): NodePosition => {
     return {
       position: 'absolute' as const,
-      left: '50px',
-      top: `${index * 120 + 50}px`,
+      left: `calc(50% - ${NODE_WIDTH / 2}px)`,
+      top: `${TOP_OFFSET + index * VERTICAL_SPACING}px`,
     }
   }
 
+  // Connection points: center of each node, using container center
   const getSingleConnectionStart = (index: number): Position => {
     return {
-      x: 175,
-      y: index * 120 + 25,
+      x: getContainerCenterX(),
+      y: TOP_OFFSET + (index - 1) * VERTICAL_SPACING + NODE_HEIGHT / 2,
     }
   }
 
   const getSingleConnectionEnd = (index: number): Position => {
     return {
-      x: 175,
-      y: (index + 1) * 120 + 100,
+      x: getContainerCenterX(),
+      y: TOP_OFFSET + index * VERTICAL_SPACING + NODE_HEIGHT / 2,
     }
   }
 
