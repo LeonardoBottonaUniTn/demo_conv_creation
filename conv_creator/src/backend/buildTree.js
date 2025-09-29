@@ -3,7 +3,7 @@
 
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 
 export function buildTree(flatNodes, rootId = '0') {
   const nodeMap = {}
@@ -21,7 +21,7 @@ export function buildTree(flatNodes, rootId = '0') {
 }
 
 // Only run if called directly
-if (import.meta.url === process.argv[1] || import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
   const dataPath = path.join(__dirname, 'bp_130_0.json')
   const flatNodes = JSON.parse(fs.readFileSync(dataPath, 'utf-8'))

@@ -21,3 +21,11 @@ export interface UserPersona {
   description: string
   stance: 'positive' | 'negative'
 }
+
+export interface RawUserData {
+  speaker: string
+  argumentative_style: string
+  stance_summary: string
+  stance: string
+  subunits: string[]
+}
