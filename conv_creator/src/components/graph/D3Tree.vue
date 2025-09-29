@@ -143,6 +143,7 @@ function renderTree() {
         const boxWidth = 260
         const boxHeight = 110
         let nodeTypeClass = ''
+        let isFocused = focusedNodeId.value === d.data.id
         switch (d.data.type) {
           case 'thesis':
             nodeTypeClass = 'node-thesis'
@@ -166,6 +167,7 @@ function renderTree() {
           .attr('class', `argument-node ${nodeTypeClass}`)
           .attr('fill', 'white')
           .attr('stroke', () => {
+            if (isFocused) return 'red' // red border for focused node
             switch (d.data.type) {
               case 'thesis':
                 return '#28a745'
@@ -177,10 +179,10 @@ function renderTree() {
                 return '#dee2e6'
             }
           })
-          .attr('stroke-width', 3)
+          .attr('stroke-width', isFocused ? 5 : 3)
           .style('filter', 'drop-shadow(0 4px 15px rgba(0,0,0,0.1))')
 
-        // Header: id (left), type (right)
+        // Header: id (upper left)
         group
           .append('text')
           .attr('x', d.x - boxWidth / 2 + 12)
@@ -191,6 +193,18 @@ function renderTree() {
           .attr('fill', '#6c757d')
           .text(d.data.id || '')
 
+        // Speaker (higher right corner, same style as id)
+        group
+          .append('text')
+          .attr('x', d.x + boxWidth / 2 - 12)
+          .attr('y', d.y - boxHeight / 2 + 22)
+          .attr('text-anchor', 'end')
+          .attr('font-size', '12px')
+          .attr('font-weight', '600')
+          .attr('fill', '#6c757d')
+          .text(d.data.speaker ? d.data.speaker : '')
+
+        // Type (upper right)
         group
           .append('text')
           .attr('x', d.x + boxWidth / 2 - 12)
@@ -305,29 +319,8 @@ function renderTree() {
             emit('addToChat', d.data)
           })
 
-        // Only show 'Focus this node' for parent and children of focused node
-        let showFocusButton = false
-        if (focusedNodeId.value && focusedSubtree.value) {
-          // Parent
-          if (d.parent && d.parent.data.id === focusedNodeId.value) {
-            showFocusButton = true
-          }
-          // Children
-          if (d.parent && d.data.id === focusedNodeId.value) {
-            showFocusButton = false // Don't show for the focused node itself
-          } else if (d.parent && d.parent.data.id === focusedNodeId.value) {
-            showFocusButton = true
-          } else if (d.children && d.parent && d.parent.data.id !== focusedNodeId.value) {
-            // Check if focused node is parent of this node
-            if (
-              focusedSubtree.value.children &&
-              focusedSubtree.value.children.some((child) => child.id === d.data.id)
-            ) {
-              showFocusButton = true
-            }
-          }
-        }
-        if (showFocusButton) {
+        // Show 'Focus this node' for every node except the currently focused one
+        if (!focusedNodeId.value || d.data.id !== focusedNodeId.value) {
           buttonContainer
             .append('xhtml:button')
             .attr('class', 'focus-node-hint')
@@ -346,7 +339,7 @@ function renderTree() {
             .on('click', function (event) {
               event.stopPropagation()
               focusedNodeId.value = d.data.id
-              focusedSubtree.value = d.data
+              focusedSubtree.value = getFocusedSubtree(d)
             })
         }
       } else {
@@ -463,23 +456,38 @@ function renderMiniTree() {
 }
 
 function getFocusedSubtree(d) {
-  // Returns a subtree with only the focused node, its parent, and its direct children
+  // Always search the full tree for the focused node by id
+  function findNodeAndParent(node, id, parent = null) {
+    if (node.id === id) return { node, parent }
+    if (node.children) {
+      for (const child of node.children) {
+        const result = findNodeAndParent(child, id, node)
+        if (result) return result
+      }
+    }
+    return null
+  }
+
+  const result = findNodeAndParent(props.treeData, d.data.id)
+  if (!result) return d.data
+  const { node: focused, parent } = result
+
   const cloneNode = (node) => {
     const cloned = { ...node }
-    if (cloned.children) {
-      // Only keep direct children, remove their children
+    if (cloned.children && cloned.children.length > 0) {
       cloned.children = cloned.children.map((child) => ({ ...child, children: undefined }))
+    } else {
+      cloned.children = []
     }
     return cloned
   }
 
-  if (d.parent) {
-    // Clone parent and attach focused node as its only child
-    const parentClone = { ...d.parent.data }
-    parentClone.children = [cloneNode(d.data)]
+  if (parent) {
+    const parentClone = { ...parent }
+    parentClone.children = [cloneNode(focused)]
     return parentClone
   } else {
-    return cloneNode(d.data)
+    return cloneNode(focused)
   }
 }
 
