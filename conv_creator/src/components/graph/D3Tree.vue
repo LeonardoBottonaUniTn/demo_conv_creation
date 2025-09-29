@@ -138,10 +138,24 @@ function renderTree() {
     .each(function (d) {
       const isFocusedTree = focusedNodeId.value && focusedSubtree.value
       const group = d3.select(this)
+      let boxWidth = 260
+      const boxHeight = 110
       if (isFocusedTree) {
-        // Modern, clean node box using reference style
-        const boxWidth = 260
-        const boxHeight = 110
+        // Calculate max nodes in any layer (depth)
+        const nodesByDepth = {}
+        root.descendants().forEach((node) => {
+          nodesByDepth[node.depth] = (nodesByDepth[node.depth] || 0) + 1
+        })
+        const maxNodesInLayer = Math.max(...Object.values(nodesByDepth))
+        // Minimum width for a node
+        const minBoxWidth = 180
+        // Margin between nodes
+        const nodeMargin = 24
+        // Adaptive width based on available SVG width
+        boxWidth = Math.max(
+          minBoxWidth,
+          Math.floor((props.width - nodeMargin * (maxNodesInLayer - 1)) / maxNodesInLayer),
+        )
         let nodeTypeClass = ''
         let isFocused = focusedNodeId.value === d.data.id
         switch (d.data.type) {
@@ -216,43 +230,65 @@ function renderTree() {
           .attr('background-color', 'rgba(0,0,0,0.1)')
           .text((d.data.type || '').toUpperCase())
 
-        // Main text
+        // Main text with pixel-based wrapping
         const text = d.data.text || ''
-        const wrap = (str, maxLen) => {
+        // Helper to wrap text by pixel width using SVG measurement
+        function wrapTextByWidth(
+          str,
+          maxWidth,
+          fontSize = 12,
+          fontWeight = 'normal',
+          fontFamily = 'sans-serif',
+        ) {
           const words = str.split(' ')
           const lines = []
           let line = ''
+          // Create a temporary SVG text element for measurement
+          const tempText = group
+            .append('text')
+            .attr('font-size', fontSize + 'px')
+            .attr('font-weight', fontWeight)
+            .attr('font-family', fontFamily)
+            .attr('visibility', 'hidden')
           words.forEach((word) => {
-            if ((line + ' ' + word).trim().length > maxLen) {
+            const testLine = line ? line + ' ' + word : word
+            tempText.text(testLine)
+            const testWidth = tempText.node().getComputedTextLength()
+            if (testWidth > maxWidth && line) {
               lines.push(line)
               line = word
             } else {
-              line += (line ? ' ' : '') + word
+              line = testLine
             }
           })
           if (line) lines.push(line)
+          tempText.remove()
           return lines
         }
         // Only show 3 lines in the box
-        const wrapped = wrap(text, 42)
+        const wrapped = wrapTextByWidth(text, boxWidth - 32)
         let textY = d.y - boxHeight / 2 + 38
         let lastTextY = textY
         // Show up to 2 lines, and if truncated, show 'Expand' as the third line
         let displayLines = wrapped.slice(0, 2)
         let isTruncated = wrapped.length > 3
+        // Use SVG tspan for proper wrapping
+        const textElem = group
+          .append('text')
+          .attr('x', d.x)
+          .attr('y', textY)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '12px')
+          .attr('font-weight', 'normal')
+          .attr('fill', '#333')
         displayLines.forEach((line, i) => {
-          lastTextY = textY + i * 16
-          group
-            .append('text')
+          textElem
+            .append('tspan')
             .attr('x', d.x)
-            .attr('y', lastTextY)
-            .attr('text-anchor', 'middle')
-            .attr('font-size', '13px')
-            .attr('font-weight', 'normal')
-            .attr('fill', '#333')
+            .attr('y', textY + i * 15)
             .text(line)
         })
-        lastTextY = textY + 2 * 16
+        lastTextY = textY + displayLines.length * 15
         if (isTruncated) {
           group
             .append('text')
@@ -269,15 +305,7 @@ function renderTree() {
             })
         } else if (wrapped.length >= 3) {
           // If not truncated but exactly 3 lines, show the third line
-          group
-            .append('text')
-            .attr('x', d.x)
-            .attr('y', lastTextY)
-            .attr('text-anchor', 'middle')
-            .attr('font-size', '13px')
-            .attr('font-weight', 'normal')
-            .attr('fill', '#333')
-            .text(wrapped[2])
+          textElem.append('tspan').attr('x', d.x).attr('y', lastTextY).text(wrapped[2])
         }
 
         // Button centered inside box, below text, never overlapping and always inside box
@@ -286,11 +314,13 @@ function renderTree() {
           buttonY = d.y + boxHeight / 2 - 32
         }
         // Button container for both buttons
+        // Make width adaptive to boxWidth, max 220px, min 120px
+        const buttonContainerWidth = Math.max(120, Math.min(boxWidth - 12, 220))
         const buttonContainer = group
           .append('foreignObject')
-          .attr('x', d.x - 110)
+          .attr('x', d.x - buttonContainerWidth / 2)
           .attr('y', buttonY)
-          .attr('width', 220)
+          .attr('width', buttonContainerWidth)
           .attr('height', 24)
           .append('xhtml:div')
           .style('display', 'flex')
@@ -302,18 +332,22 @@ function renderTree() {
         buttonContainer
           .append('xhtml:button')
           .attr('class', 'add-to-chat-hint')
-          .style('width', '110px')
+          .style('width', `${Math.max(80, Math.floor(buttonContainerWidth / 2) - 8)}px`)
           .style('height', '24px')
           .style('border-radius', '12px')
           .style('background', 'rgba(0,123,255,0.15)')
           .style('color', '#007bff')
           .style('border', '1px solid rgba(0,123,255,0.3)')
-          .style('font-size', '11px')
+          .style('font-size', buttonContainerWidth < 160 ? '10px' : '11px')
           .style('font-weight', '600')
           .style('cursor', 'pointer')
           .style('user-select', 'none')
           .style('transition', 'all 0.2s ease')
-          .text('Add to chat')
+          .style('white-space', 'normal')
+          .style('overflow-wrap', 'break-word')
+          .style('word-break', 'break-word')
+          .style('text-align', 'center')
+          .text(buttonContainerWidth < 120 ? 'Chat' : 'Add to chat')
           .on('click', function (event) {
             event.stopPropagation()
             emit('addToChat', d.data)
@@ -321,21 +355,46 @@ function renderTree() {
 
         // Show 'Focus this node' for every node except the currently focused one
         if (!focusedNodeId.value || d.data.id !== focusedNodeId.value) {
+          // Dynamically reduce font size so text fits in one line
+          const focusText = buttonContainerWidth < 120 ? 'Focus' : 'Focus this node'
+          let focusFontSize = 11
+          // Estimate required font size for the button width
+          const minFontSize = 8
+          const maxButtonWidth = Math.max(80, Math.floor(buttonContainerWidth / 2) - 8)
+          // Create a temp span to measure text width
+          const tempSpan = document.createElement('span')
+          tempSpan.style.visibility = 'hidden'
+          tempSpan.style.position = 'absolute'
+          tempSpan.style.fontWeight = '600'
+          tempSpan.style.fontFamily = 'inherit'
+          tempSpan.style.whiteSpace = 'nowrap'
+          tempSpan.innerText = focusText
+          document.body.appendChild(tempSpan)
+          while (focusFontSize > minFontSize) {
+            tempSpan.style.fontSize = focusFontSize + 'px'
+            if (tempSpan.offsetWidth <= maxButtonWidth - 16) break
+            focusFontSize = focusFontSize - 2
+          }
+          document.body.removeChild(tempSpan)
           buttonContainer
             .append('xhtml:button')
             .attr('class', 'focus-node-hint')
-            .style('width', '110px')
+            .style('width', `${maxButtonWidth}px`)
             .style('height', '24px')
             .style('border-radius', '12px')
             .style('background', 'rgba(40,167,69,0.15)')
             .style('color', '#28a745')
             .style('border', '1px solid rgba(40,167,69,0.3)')
-            .style('font-size', '11px')
+            .style('font-size', focusFontSize + 'px')
             .style('font-weight', '600')
             .style('cursor', 'pointer')
             .style('user-select', 'none')
             .style('transition', 'all 0.2s ease')
-            .text('Focus this node')
+            .style('white-space', 'nowrap')
+            .style('overflow-wrap', 'break-word')
+            .style('word-break', 'break-word')
+            .style('text-align', 'center')
+            .text(focusText)
             .on('click', function (event) {
               event.stopPropagation()
               focusedNodeId.value = d.data.id
