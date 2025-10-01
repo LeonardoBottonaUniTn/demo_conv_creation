@@ -125,3 +125,13 @@ const handleAddFromGraph = (messageData: {
   }
 }
 </style>
+
+<style>
+html,
+body {
+  height: 100%;
+  overflow: hidden !important;
+  position: fixed;
+  width: 100vw;
+}
+</style>
