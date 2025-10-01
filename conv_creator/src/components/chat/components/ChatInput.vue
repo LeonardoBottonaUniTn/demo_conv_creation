@@ -1,153 +1,103 @@
 <template>
-  <div class="chat-input">
-    <div class="input-controls">
-      <select v-model="selectedUserId" class="user-selector">
-        <option :value="currentUserId">{{ currentUserName }} (You)</option>
-        <option v-for="persona in availablePersonas" :key="persona.id" :value="persona.id">
-          {{ persona.name }} ({{ persona.stance }})
-        </option>
-      </select>
-      <input
-        v-model="inputText"
-        @keyup.enter="handleSend"
-        type="text"
-        :placeholder="placeholder"
-        class="message-input"
-      />
-      <button @click="handleSend" class="send-button" :disabled="!canSend">Send</button>
-    </div>
+  <div class="chat-input chat-input-container">
+    <!-- Attach button (always visible on the left) -->
+    <button class="attach-btn">📎</button>
+
+    <!-- Expanding textarea -->
+    <textarea
+      :value="modelValue"
+      ref="textarea"
+      placeholder="Message"
+      @input="onInput"
+      @keydown.enter.exact.prevent="send"
+      rows="1"
+    ></textarea>
+
+    <!-- Right-side button (send if text, mic if empty) -->
+    <button v-if="modelValue.trim().length > 0" class="send-btn" @click="send">➤</button>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import type { ChatUser } from '../../../types/chat'
+<script setup>
+import { ref } from 'vue'
 
-interface Props {
-  placeholder?: string
-  inputValue?: string
-  currentUserId?: number
-  currentUserName?: string
-  availablePersonas?: ChatUser[]
-}
-
-interface Emits {
-  send: [text: string, senderId: number]
-  updateInput: [value: string]
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  placeholder: 'Type a message...',
-  inputValue: '',
-  currentUserId: 1,
-  currentUserName: 'You',
-  availablePersonas: () => [],
-})
-
-const emit = defineEmits<Emits>()
-
-const inputText = ref('')
-const selectedUserId = ref(props.currentUserId)
-
-// Initialize with prop value immediately
-if (props.inputValue) {
-  inputText.value = props.inputValue
-}
-
-// Watch for external input value changes
-watch(
-  () => props.inputValue,
-  (newValue) => {
-    inputText.value = newValue || ''
+const props = defineProps({
+  modelValue: {
+    type: String,
+    default: '',
   },
-  { immediate: true },
-)
-
-// Emit input changes (but avoid circular updates)
-watch(inputText, (newValue) => {
-  if (newValue !== props.inputValue) {
-    emit('updateInput', newValue)
-  }
 })
+const emit = defineEmits(['update:modelValue', 'send'])
+const textarea = ref(null)
 
-const canSend = computed(() => {
-  return inputText.value.trim().length > 0
-})
+const onInput = (e) => {
+  emit('update:modelValue', e.target.value)
+  autoResize()
+}
 
-const handleSend = () => {
-  if (canSend.value) {
-    emit('send', inputText.value.trim(), selectedUserId.value)
-    // Don't clear here - let the parent handle it
+const autoResize = () => {
+  const el = textarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
+
+const send = () => {
+  if (props.modelValue.trim().length > 0) {
+    emit('send')
+    emit('update:modelValue', '')
+    autoResize()
   }
 }
 </script>
 
 <style scoped>
-.chat-input {
-  padding: 15px;
-  background-color: #006ba3;
-  border-top: 1px solid #005080;
-}
-
-.input-controls {
+.chat-input-container {
+  width: 100%;
+  max-width: 500px;
+  margin: 0 auto;
   display: flex;
-  gap: 10px;
   align-items: center;
+  background: #006ba3;
+  box-sizing: border-box;
 }
 
-.user-selector {
-  padding: 8px 12px;
+textarea {
+  flex: 1 1 auto;
   border: none;
-  border-radius: 15px;
-  background-color: rgba(255, 255, 255, 0.9);
-  color: #333;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  min-width: 120px;
-}
-
-.user-selector:focus {
   outline: none;
-  background-color: white;
+  resize: none;
+  font-size: 16px;
+  line-height: 20px;
+  padding: 8px;
+  border-radius: 16px;
+  background: #006ba3;
+  max-height: 90px; /* limit growth */
+  overflow-y: auto;
+  min-width: 0;
 }
 
-.message-input {
-  flex: 1;
-  padding: 10px 15px;
+button {
+  background: none;
   border: none;
-  border-radius: 20px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 14px;
-}
-
-.message-input::placeholder {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.message-input:focus {
-  outline: none;
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-.send-button {
-  padding: 10px 20px;
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 20px;
   cursor: pointer;
-  font-weight: 600;
-  transition: background-color 0.2s;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  height: 40px;
 }
 
-.send-button:hover:not(:disabled) {
-  background-color: #45a049;
+.attach-btn {
+  color: #888;
+  min-width: 40px;
 }
 
-.send-button:disabled {
-  background-color: #666;
-  cursor: not-allowed;
+@media (max-width: 700px) {
+  .chat-input-container {
+    max-width: 100%;
+    padding: 0 4px;
+  }
 }
 </style>

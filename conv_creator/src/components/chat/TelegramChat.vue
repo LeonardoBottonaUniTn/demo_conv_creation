@@ -24,20 +24,26 @@
     </div>
 
     <div class="chat-input">
-      <input
+      <!-- Sender chip -->
+      <div v-if="selectedSender" class="sender-chip">
+        <span>{{ selectedSender }}</span>
+        <button class="remove-chip" @click="removeSender">&times;</button>
+      </div>
+      <!-- ChatInput component for message input and send -->
+      <ChatInput
         v-model="newMessage"
-        @keyup.enter="sendMessage"
-        type="text"
         :placeholder="inputPlaceholder"
         class="message-input"
+        style="flex: 1"
+        @send="sendMessage"
       />
-      <button @click="sendMessage" class="send-button">Send</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
+import ChatInput from './components/ChatInput.vue'
 
 interface ChatMessage {
   id: number
@@ -52,7 +58,6 @@ interface Props {
   status?: string
   currentUser?: string
   inputPlaceholder?: string
-  inputValue?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -60,50 +65,42 @@ const props = withDefaults(defineProps<Props>(), {
   status: 'Online',
   currentUser: 'You',
   inputPlaceholder: 'Type a message...',
-  inputValue: '',
 })
 
 const emit = defineEmits<{
   sendMessage: [message: { sender: string; text: string; time: string }]
-  updateInput: [value: string]
 }>()
 
 const newMessage = ref('')
 const messagesContainer = ref<HTMLElement>()
-
-// Watch for changes in inputValue prop and update newMessage
-watch(
-  () => props.inputValue,
-  (newValue) => {
-    if (newValue !== undefined && newValue !== newMessage.value) {
-      newMessage.value = newValue
-    }
-  },
-  { immediate: true },
-)
-
-// Emit input changes back to parent
-watch(newMessage, (newValue) => {
-  emit('updateInput', newValue)
-})
+const possibleSenders = ref(['You', 'Bot', 'Admin'])
+const selectedSender = ref<string | null>(null)
 
 const sendMessage = () => {
-  if (newMessage.value.trim()) {
-    const message = {
-      sender: props.currentUser,
-      text: newMessage.value,
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    }
-    emit('sendMessage', message)
-    newMessage.value = ''
-
-    // Auto-scroll to bottom
-    nextTick(() => {
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-      }
-    })
+  if (/* !selectedSender.value ||*/ !newMessage.value.trim()) {
+    // Do nothing, sender must be selected and message not empty
+    return
   }
+  const message = {
+    sender: 'OG', //selectedSender.value, --- TO IMPLEMENT ---
+    text: newMessage.value,
+    time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+  }
+  emit('sendMessage', message)
+  newMessage.value = ''
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
+}
+
+const selectSender = (sender: string) => {
+  selectedSender.value = sender
+}
+
+const removeSender = () => {
+  selectedSender.value = null
 }
 
 // Auto-scroll when new messages are added
@@ -216,6 +213,7 @@ watch(
   border-top: 1px solid #005080;
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .message-input {
@@ -228,6 +226,67 @@ watch(
   font-size: 14px;
 }
 
+.sender-chip {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  color: #0088cc;
+  border-radius: 16px;
+  padding: 4px 12px;
+  margin-right: 8px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.remove-chip {
+  background: none;
+  border: none;
+  color: #0088cc;
+  font-size: 18px;
+  margin-left: 6px;
+  cursor: pointer;
+}
+
+.sender-select-dropdown {
+  position: relative;
+}
+.sender-select-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+.sender-select-btn:hover {
+  background-color: #45a049;
+}
+.dropdown-content {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  background: #fff;
+  color: #0088cc;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  min-width: 120px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+.dropdown-item {
+  background: none;
+  border: none;
+  padding: 10px 16px;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 600;
+  color: #0088cc;
+}
+.dropdown-item:hover {
+  background: #e0f7fa;
+}
 .message-input::placeholder {
   color: rgba(255, 255, 255, 0.6);
 }
