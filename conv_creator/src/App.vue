@@ -40,14 +40,19 @@ const handleUpdateInput = (value: string) => {
   chatInputValue.value = value
 }
 
+import { onMounted } from 'vue'
+const telegramChatRef = ref()
 const handleAddFromGraph = (messageData: {
   text: string
   type: 'user' | 'bot'
   nodeId: string
   nodeType: string
 }) => {
-  // Instead of adding directly to chat, populate the input field without prefix
   chatInputValue.value = messageData.text
+  // Set the sender in the chat input (default to thesis author)
+  if (telegramChatRef.value && telegramChatRef.value.setSender) {
+    telegramChatRef.value.setSender(thesisAuthor.name)
+  }
 }
 </script>
 
@@ -58,6 +63,7 @@ const handleAddFromGraph = (messageData: {
 
     <!-- Right side - Telegram chat simulation (1/4 width) -->
     <TelegramChat
+      ref="telegramChatRef"
       :messages="messages"
       :input-value="chatInputValue"
       @send-message="handleSendMessage"

@@ -6,12 +6,15 @@
     <div class="message-header" v-if="!isOwnMessage">
       <span class="sender">{{ senderName }}</span>
       <span v-if="senderStance" class="stance-badge" :class="senderStance">{{ senderStance }}</span>
+      <span v-if="message.addressees && message.addressees.length > 0" class="addressees">
+        → {{ message.addressees.join(', ') }}
+      </span>
     </div>
     <div class="message-text">{{ message.text }}</div>
     <div class="message-actions" v-if="isThesisMessage">
       <button @click="addToChat" class="add-to-chat-btn">Add to Chat</button>
     </div>
-    <div class="message-time">{{ formatTime(message.timestamp) }}</div>
+    <div class="message-time">Turn {{ turnNumber }}</div>
   </div>
 </template>
 
@@ -23,6 +26,7 @@ interface Props {
   message: ChatMessage
   currentUserId: number
   availablePersonas: ChatUser[]
+  turnNumber: number
 }
 
 interface Emits {
@@ -55,10 +59,6 @@ const senderInfo = computed(() => {
 
 const senderName = computed(() => senderInfo.value.name)
 const senderStance = computed(() => senderInfo.value.stance)
-
-const formatTime = (timestamp: Date) => {
-  return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
 
 const addToChat = () => {
   emit('addToChat', props.message.text)
@@ -114,6 +114,12 @@ const addToChat = () => {
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.addressees {
+  color: #666;
+  font-style: italic;
+  font-size: 11px;
 }
 
 .stance-badge.positive {

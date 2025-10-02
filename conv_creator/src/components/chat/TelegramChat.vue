@@ -10,39 +10,41 @@
 
     <div class="chat-messages" ref="messagesContainer">
       <div
-        v-for="message in messages"
+        v-for="(message, index) in messages"
         :key="message.id"
         class="message"
         :class="{ 'own-message': message.sender === currentUser }"
       >
         <div class="message-header">
-          <span class="sender">{{ message.sender }}</span>
-          <span class="time">{{ message.time }}</span>
+          <span class="sender">
+            {{ message.sender }}
+            <span v-if="message.addressees && message.addressees.length > 0" class="addressees">
+              → {{ message.addressees.join(', ') }}
+            </span>
+          </span>
+          <span class="time">Turn {{ index + 1 }}</span>
         </div>
         <div class="message-text">{{ message.text }}</div>
       </div>
     </div>
 
     <div class="chat-input">
-      <!-- Sender chip -->
-      <div v-if="selectedSender" class="sender-chip">
-        <span>{{ selectedSender }}</span>
-        <button class="remove-chip" @click="removeSender">&times;</button>
-      </div>
       <!-- ChatInput component for message input and send -->
       <ChatInput
         v-model="newMessage"
         :placeholder="inputPlaceholder"
-        class="message-input"
         style="flex: 1"
         @send="sendMessage"
+        @update:sender="selectSender"
+        @update:addressees="selectAddressees"
+        @update:modelValue="handleInputUpdate"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted } from 'vue'
 import ChatInput from './components/ChatInput.vue'
 
 interface ChatMessage {
@@ -50,6 +52,7 @@ interface ChatMessage {
   sender: string
   text: string
   time: string
+  addressees?: string[]
 }
 
 interface Props {
@@ -58,6 +61,7 @@ interface Props {
   status?: string
   currentUser?: string
   inputPlaceholder?: string
+  inputValue?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -65,29 +69,47 @@ const props = withDefaults(defineProps<Props>(), {
   status: 'Online',
   currentUser: 'You',
   inputPlaceholder: 'Type a message...',
+  inputValue: '',
 })
 
 const emit = defineEmits<{
-  sendMessage: [message: { sender: string; text: string; time: string }]
+  sendMessage: [message: { sender: string; text: string; time: string; addressees?: string[] }]
+  updateInput: [value: string]
 }>()
 
 const newMessage = ref('')
 const messagesContainer = ref<HTMLElement>()
 const possibleSenders = ref(['You', 'Bot', 'Admin'])
 const selectedSender = ref<string | null>(null)
+const selectedAddressees = ref<string[]>([])
+
+// Watch for external input value changes
+watch(
+  () => props.inputValue,
+  (newVal) => {
+    newMessage.value = newVal || ''
+  },
+)
+
+// Initialize with prop value
+onMounted(() => {
+  newMessage.value = props.inputValue || ''
+})
 
 const sendMessage = () => {
-  if (/* !selectedSender.value ||*/ !newMessage.value.trim()) {
-    // Do nothing, sender must be selected and message not empty
+  if (!selectedSender.value || !newMessage.value.trim() || selectedAddressees.value.length === 0) {
+    // Do nothing, sender must be selected, message not empty, and at least one addressee selected
     return
   }
   const message = {
-    sender: 'OG', //selectedSender.value, --- TO IMPLEMENT ---
+    sender: selectedSender.value,
     text: newMessage.value,
     time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    addressees: selectedAddressees.value,
   }
   emit('sendMessage', message)
   newMessage.value = ''
+  emit('updateInput', '') // Emit the update to parent
   nextTick(() => {
     if (messagesContainer.value) {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
@@ -97,6 +119,15 @@ const sendMessage = () => {
 
 const selectSender = (sender: string) => {
   selectedSender.value = sender
+}
+
+const selectAddressees = (addressees: string[]) => {
+  selectedAddressees.value = addressees
+}
+
+const handleInputUpdate = (value: string) => {
+  newMessage.value = value
+  emit('updateInput', value)
 }
 
 const removeSender = () => {
@@ -114,6 +145,13 @@ watch(
     })
   },
 )
+
+// Expose a method to set the sender from parent (App.vue)
+defineExpose({
+  setSender: (sender: string) => {
+    selectedSender.value = sender
+  },
+})
 </script>
 
 <style scoped>
@@ -192,6 +230,13 @@ watch(
   font-weight: 600;
 }
 
+.addressees {
+  color: rgba(255, 255, 255, 0.7);
+  font-style: italic;
+  font-size: 10px;
+  margin: 0 5px;
+}
+
 .time {
   font-size: 10px;
 }
@@ -208,22 +253,11 @@ watch(
 }
 
 .chat-input {
-  padding: 15px;
+  padding: 15px 5px;
   background-color: #006ba3;
-  border-top: 1px solid #005080;
   display: flex;
   gap: 10px;
-  align-items: center;
-}
-
-.message-input {
-  flex: 1;
-  padding: 10px 15px;
-  border: none;
-  border-radius: 20px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 14px;
+  align-items: flex-end;
 }
 
 .sender-chip {
