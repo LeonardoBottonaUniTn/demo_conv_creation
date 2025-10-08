@@ -11,7 +11,7 @@ import { defineConfig, devices } from '@playwright/test'
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './frontend/e2e',
   /* Maximum time one test can run for. */
   timeout: 30 * 1000,
   expect: {
@@ -102,8 +102,9 @@ export default defineConfig({
      * Use the dev server by default for faster feedback loop.
      * Use the preview server on CI for more realistic testing.
      * Playwright will re-use the local server if there is already a dev-server running.
+     * We `cd` into the frontend folder so the frontend's package.json is used.
      */
-    command: process.env.CI ? 'npm run preview' : 'npm run dev',
+    command: process.env.CI ? 'cd frontend && npm run preview' : 'cd frontend && npm run dev',
     port: process.env.CI ? 4173 : 5173,
     reuseExistingServer: !process.env.CI,
   },
