@@ -4,6 +4,7 @@ export interface ChatMessage {
   id: number
   text: string
   sender: number
+  addressees?: string[] // Array of addressee names
   timestamp: Date
 }
 
@@ -20,4 +21,12 @@ export interface UserPersona {
   name: string
   description: string
   stance: 'positive' | 'negative'
+}
+
+export interface RawUserData {
+  speaker: string
+  argumentative_style: string
+  stance_summary: string
+  stance: string
+  subunits: string[]
 }

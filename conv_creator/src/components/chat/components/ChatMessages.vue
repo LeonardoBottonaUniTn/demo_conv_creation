@@ -1,11 +1,12 @@
 <template>
   <div class="chat-messages" ref="messagesContainer">
     <ChatMessage
-      v-for="message in messages"
+      v-for="(message, index) in messages"
       :key="message.id"
       :message="message"
       :current-user-id="currentUserId"
       :available-personas="availablePersonas"
+      :turn-number="index + 1"
       @addToChat="handleAddToChat"
     />
   </div>

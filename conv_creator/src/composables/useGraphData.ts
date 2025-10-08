@@ -1,10 +1,32 @@
 // Composable for managing graph data and state
 import { ref, computed, type Ref } from 'vue'
 import type { ArgumentNode, BranchesData, Position } from '../types/graph'
-import discussionData from '../backend/Can_Man-made_Climate_Change_Be_Reversed_20each.json'
+import discussionData from '../backend/bp_130_0_d3.json'
 
 export function useGraphData() {
-  const discussionBranches = ref<BranchesData>([])
+  // Helper: traverse tree and collect all branches (root-to-leaf paths)
+  function collectBranches(
+    node: any,
+    path: ArgumentNode[] = [],
+    branches: ArgumentNode[][] = [],
+  ): ArgumentNode[][] {
+    const currentNode: ArgumentNode = {
+      id: node.id,
+      type: node.type ?? 'thesis',
+      text: node.text,
+    }
+    const newPath = [...path, currentNode]
+    if (!node.children || node.children.length === 0) {
+      branches.push(newPath)
+    } else {
+      for (const child of node.children) {
+        collectBranches(child, newPath, branches)
+      }
+    }
+    return branches
+  }
+
+  const discussionBranches = ref<BranchesData>(collectBranches(discussionData))
   const selectedBranch = ref(0)
   const loading = ref(true)
   const error = ref('')
@@ -23,7 +45,7 @@ export function useGraphData() {
   const loadDiscussionData = async () => {
     try {
       loading.value = true
-      discussionBranches.value = discussionData as BranchesData
+      discussionBranches.value = collectBranches(discussionData)
       loading.value = false
     } catch (err) {
       console.error('Error loading discussion data:', err)

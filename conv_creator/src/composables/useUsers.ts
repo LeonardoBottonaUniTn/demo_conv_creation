@@ -1,9 +1,17 @@
 import { ref, reactive } from 'vue'
-import type { ChatUser, UserPersona } from '../types/chat'
-import usersData from '../backend/users.json'
+import type { ChatUser, UserPersona, RawUserData } from '../types/chat'
+import usersData from '../backend/bp_130_users.json'
 
 export function useUsers() {
-  const personas = ref<UserPersona[]>(usersData as UserPersona[])
+  const personas = ref<UserPersona[]>(
+    (usersData as RawUserData[]).map((user) => ({
+      name: user.speaker,
+      description: user.argumentative_style,
+      stance: user.stance as 'positive' | 'negative',
+      stance_summary: user.stance_summary,
+      subunits: user.subunits,
+    })),
+  )
 
   const currentUser = reactive<ChatUser>({
     id: 1,

@@ -1,0 +1,303 @@
+{
+  "id": "1",
+  "speaker": "OG",
+  "text": "New optimism is factually false because humanity's progress is largely due to random luck and accidents, not systemic improvements.",
+  "target_id": "0",
+  "children": [
+    {
+      "id": "1.1",
+      "speaker": "CG",
+      "text": "New optimism is a narrative pushed by the rich and powerful to maintain their status quo and suppress dissent.",
+      "target_id": "1",
+      "children": [
+        {
+          "id": "1.1.1",
+          "speaker": "CO",
+          "text": "Hope is required before reasoned evidence; belief that problems can be solved drives crucial innovation and funding.",
+          "target_id": "1.1",
+          "children": [
+            {
+              "id": "1.1.1.1",
+              "speaker": "OO",
+              "text": "New optimism is descriptive, acknowledging improvements while recognizing ongoing challenges; it does not blindly endorse capitalism or globalization.",
+              "target_id": "1.1.1",
+              "children": [
+                {
+                  "id": "1.1.1.1.1",
+                  "speaker": "CG",
+                  "text": "Hope is fragile as change is slow and invisible day-to-day, leading to disillusionment and undermining sustained motivation.",
+                  "target_id": "1.1.1.1",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.1.1",
+                  "speaker": "CG",
+                  "text": "Hope is fragile as change is slow and invisible day-to-day, leading to disillusionment and undermining sustained motivation.",
+                  "target_id": "1.1.1.1",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.1.2",
+                  "speaker": "OG",
+                  "text": "Capitalism and globalization have caused cultural homogenization and alienation, erasing indigenous identities and disconnecting people from their labor.",
+                  "target_id": "1.1.1.1",
+                  "children": [
+                    {
+                      "id": "1.1.1.1.2.1",
+                      "speaker": "OO",
+                      "text": "Globalization facilitates cultural exchange and marginalized voices gaining platforms, not mere homogenization.",
+                      "target_id": "1.1.1.1.2",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "1.1.1.1.3",
+                  "speaker": "CO",
+                  "text": "Even limited uptake of optimism among students can have recursive, positive effects on funding, research, and social impact.",
+                  "target_id": "1.1.1.1",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "1.1.1.2",
+              "speaker": "CG",
+              "text": "Hope and catharsis are insufficient without real collective action and understanding of diverse individual experiences.",
+              "target_id": "1.1.1",
+              "children": [
+                {
+                  "id": "1.1.1.2.1",
+                  "speaker": "OG",
+                  "text": "Individuals internalize new optimism, causing risky life decisions and insufficient preparation for adverse events.",
+                  "target_id": "1.1.1.2",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.2.2",
+                  "speaker": "OO",
+                  "text": "Pessimism discourages engagement and reform, while new optimism encourages sustainable efforts to address existential threats.",
+                  "target_id": "1.1.1.2",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.2.3",
+                  "speaker": "CO",
+                  "text": "Belief in the efficacy of solutions motivates researchers and voters to fund necessary scientific endeavors.",
+                  "target_id": "1.1.1.2",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "1.1.1.3",
+              "speaker": "OG",
+              "text": "Belief in new optimism breeds complacency, preventing necessary action against tail risks like nuclear war and climate change.",
+              "target_id": "1.1.1",
+              "children": [
+                {
+                  "id": "1.1.1.3.1",
+                  "speaker": "CO",
+                  "text": "Fear alone is insufficient; hope coupled with fear drives meaningful action and sustained effort.",
+                  "target_id": "1.1.1.3",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.3.2",
+                  "speaker": "CG",
+                  "text": "Institutional involvement is stronger when optimism exists because individuals believe collective action can succeed.",
+                  "target_id": "1.1.1.3",
+                  "children": []
+                },
+                {
+                  "id": "1.1.1.3.3",
+                  "speaker": "OO",
+                  "text": "Pessimism breeds hopelessness and nihilism, while new optimism fosters faith that change is possible and worth fighting for.",
+                  "target_id": "1.1.1.3",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "1.1.2",
+          "speaker": "OO",
+          "text": "New optimism acknowledges real problems but emphasizes that institutions and human cooperation have historically improved human conditions.",
+          "target_id": "1.1",
+          "children": [
+            {
+              "id": "1.1.2.1",
+              "speaker": "CG",
+              "text": "The rich control media and funding, enabling them to propagate new optimism and discourage challenges to their power.",
+              "target_id": "1.1.2",
+              "children": [
+                {
+                  "id": "1.1.2.1.1",
+                  "speaker": "OG",
+                  "text": "New optimism excludes marginalized experiences, ignoring ongoing systemic injustices like mass incarceration and genocide.",
+                  "target_id": "1.1.2.1",
+                  "children": []
+                },
+                {
+                  "id": "1.1.2.1.3",
+                  "speaker": "CO",
+                  "text": "Narratives have limited impact on individual incentives, but some beliefs like hope are beneficial even if not objectively true.",
+                  "target_id": "1.1.2.1",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "1.1.2.2",
+              "speaker": "OG",
+              "text": "Existential threats like climate change and AI challenge the belief that humanity will continue improving under current systems.",
+              "target_id": "1.1.2",
+              "children": []
+            },
+            {
+              "id": "1.1.2.3",
+              "speaker": "CO",
+              "text": "Optimism provides crucial hope that problems can be solved, motivating people to pursue impactful careers and research.",
+              "target_id": "1.1.2",
+              "children": [
+                {
+                  "id": "1.1.2.3.2",
+                  "speaker": "OO",
+                  "text": "Nostalgia for the past is regressive and can empower democratic backsliding and rights erosion.",
+                  "target_id": "1.1.2.3",
+                  "children": []
+                },
+                {
+                  "id": "1.1.2.3.3",
+                  "speaker": "OG",
+                  "text": "Pessimism toward institutions promotes vigilance and critical engagement necessary for reform.",
+                  "target_id": "1.1.2.3",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "1.1.3",
+          "speaker": "OG",
+          "text": "Democracy and technology will fail in the future due to corporate capture and automation replacing workers.",
+          "target_id": "1.1",
+          "children": [
+            {
+              "id": "1.1.3.1",
+              "speaker": "OO",
+              "text": "Working within existing systems and institutions is the most effective way to achieve progress and avoid chaos and violence.",
+              "target_id": "1.1.3",
+              "children": []
+            },
+            {
+              "id": "1.1.3.2",
+              "speaker": "CG",
+              "text": "New optimism causes division among the marginalized and reduces pressure for systemic change by fostering complacency.",
+              "target_id": "1.1.3",
+              "children": []
+            },
+            {
+              "id": "1.1.3.3",
+              "speaker": "CO",
+              "text": "Students and universities are central to solving existential risks through innovation and research.",
+              "target_id": "1.1.3",
+              "children": [
+                {
+                  "id": "1.1.3.3.2",
+                  "speaker": "CG",
+                  "text": "Research motivation stems from fear, not optimism; fear drives prioritization of urgent problems.",
+                  "target_id": "1.1.3.3",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1.2",
+      "speaker": "OO",
+      "text": "Birth lottery and arbitrary events are mitigated by policies and institutions aiming to reduce inequality and provide hope.",
+      "target_id": "1",
+      "children": [
+        {
+          "id": "1.2.1",
+          "speaker": "CG",
+          "text": "New optimism is a controlled narrative lacking clarity on who promotes it and why, often serving elite interests.",
+          "target_id": "1.2",
+          "children": [
+            {
+              "id": "1.2.1.2",
+              "speaker": "CO",
+              "text": "Narratives promoting optimism are disseminated through peers and academia, influencing young people’s career choices.",
+              "target_id": "1.2.1",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "1.2.2",
+          "speaker": "CO",
+          "text": "Technology and hope create non-zero-sum games, enabling cooperation and investment in solutions to existential threats.",
+          "target_id": "1.2",
+          "children": [
+            {
+              "id": "1.2.2.1",
+              "speaker": "OO",
+              "text": "New optimism explains why improvements happened, empowering ongoing efforts to address inequality and climate change.",
+              "target_id": "1.2.2",
+              "children": []
+            },
+            {
+              "id": "1.2.2.2",
+              "speaker": "CG",
+              "text": "Narratives controlled by elites can mislead and suppress genuine social movements and critiques.",
+              "target_id": "1.2.2",
+              "children": []
+            },
+            {
+              "id": "1.2.2.3",
+              "speaker": "OG",
+              "text": "It falsely assures that economic growth will solve climate change, leading to dangerous complacency and underpreparedness.",
+              "target_id": "1.2.2",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "1.2.3",
+          "speaker": "OG",
+          "text": "Democracy and technology, often cited by new optimism supporters, are failing or harmful and will not solve future problems.",
+          "target_id": "1.2",
+          "children": [
+            {
+              "id": "1.2.3.1",
+              "speaker": "CG",
+              "text": "Fear is necessary to preserve institutions and incentivize collaboration, which new optimism can provide.",
+              "target_id": "1.2.3",
+              "children": []
+            },
+            {
+              "id": "1.2.3.2",
+              "speaker": "CO",
+              "text": "Existential threats make survival paramount; motivated individuals pursuing scientific research are key to preventing catastrophe.",
+              "target_id": "1.2.3",
+              "children": []
+            },
+            {
+              "id": "1.2.3.3",
+              "speaker": "OO",
+              "text": "Technological and policy innovations are underway to combat climate change, showing progress is possible.",
+              "target_id": "1.2.3",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

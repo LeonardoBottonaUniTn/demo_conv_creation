@@ -15,29 +15,8 @@
       <div v-if="loading" class="loading">Loading discussion data...</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="graph-visualization">
-        <!-- Tree structure visualization -->
-        <TreeView
-          v-if="showAllBranches"
-          :thesis-node="thesisNode"
-          :branches="discussionBranches"
-          :expanded-branches="expandedBranches"
-          :is-branch-expanded="isBranchExpanded"
-          :get-branch-color="getBranchColor"
-          :get-thesis-connection-start="getThesisConnectionStart"
-          :get-branch-connection-end="getBranchConnectionEnd"
-          @select-node="handleSelectNode"
-          @add-to-chat="handleAddToChat"
-        />
-
-        <!-- Single branch view (vertical) -->
-        <SingleBranchView
-          v-else
-          :nodes="currentBranchNodes"
-          :get-single-branch-position="getSingleBranchPosition"
-          :get-single-connection-start="getSingleConnectionStart"
-          :get-single-connection-end="getSingleConnectionEnd"
-          @select-node="handleSelectNode"
-        />
+        <!-- D3Tree visualization for testing -->
+        <D3Tree :treeData="bp1300d3" :width="800" :height="600" @addToChat="handleAddToChat" />
       </div>
     </div>
 
@@ -54,12 +33,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import GraphControls from './controls/GraphControls.vue'
-import TreeView from './views/TreeView.vue'
-import SingleBranchView from './views/SingleBranchView.vue'
 import Modal from '../shared/Modal.vue'
 import { useGraphData } from '../../composables/useGraphData'
 import { useGraphPositions } from '../../composables/useGraphPositions'
 import type { ArgumentNode, ChatMessage } from '../../types/graph'
+import D3Tree from './D3Tree.vue'
+import bp1300d3 from '@/backend/bp_130_0_d3.json'
 
 interface Props {
   title?: string
