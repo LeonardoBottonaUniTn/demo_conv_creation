@@ -1,6 +1,6 @@
 import { ref, reactive } from 'vue'
 import type { ChatUser, UserPersona, RawUserData } from '../types/chat'
-import usersData from '../backend/bp_130_users.json'
+import usersData from 'backend/bp_130_users.json'
 
 export function useUsers() {
   const personas = ref<UserPersona[]>(

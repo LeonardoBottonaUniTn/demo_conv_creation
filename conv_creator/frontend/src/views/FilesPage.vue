@@ -196,9 +196,9 @@ onMounted(async () => {
   try {
     // Load the existing files from the backend directory
     const existingFiles = [
-      { name: 'bp_130_0.json', type: 'json', path: '/src/backend/bp_130_0.json' },
-      { name: 'bp_130_0_d3.json', type: 'json', path: '/src/backend/bp_130_0_d3.json' },
-      { name: 'bp_130_users.json', type: 'json', path: '/src/backend/bp_130_users.json' },
+      { name: 'bp_130_0.json', type: 'json', path: 'backend/bp_130_0.json' },
+      { name: 'bp_130_0_d3.json', type: 'json', path: 'backend/bp_130_0_d3.json' },
+      { name: 'bp_130_users.json', type: 'json', path: 'backend/bp_130_users.json' },
       { name: 'V2_Should_all_drugs_be_legalised.pkl', type: 'pkl', path: null },
     ]
 
@@ -208,17 +208,17 @@ onMounted(async () => {
         let content = null
         let fileSize = 0
 
-        if (file.type === 'json' && file.path) {
+            if (file.type === 'json' && file.path) {
           // Try to import JSON files directly using static imports
           try {
             if (file.name === 'bp_130_0.json') {
-              const module = await import('../backend/bp_130_0.json')
+              const module = await import(/* @vite-ignore */ file.path)
               content = module.default
             } else if (file.name === 'bp_130_0_d3.json') {
-              const module = await import('../backend/bp_130_0_d3.json')
+              const module = await import(/* @vite-ignore */ file.path)
               content = module.default
             } else if (file.name === 'bp_130_users.json') {
-              const module = await import('../backend/bp_130_users.json')
+              const module = await import(/* @vite-ignore */ file.path)
               content = module.default
             }
 

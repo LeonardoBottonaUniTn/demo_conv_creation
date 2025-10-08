@@ -95,7 +95,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import usersData from '@/backend/bp_130_users.json'
+import usersData from 'backend/bp_130_users.json'
 
 const props = defineProps({
   modelValue: {

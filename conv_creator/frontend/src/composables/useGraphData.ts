@@ -1,7 +1,7 @@
 // Composable for managing graph data and state
 import { ref, computed, type Ref } from 'vue'
 import type { ArgumentNode, BranchesData, Position } from '../types/graph'
-import discussionData from '../backend/bp_130_0_d3.json'
+import discussionData from 'backend/bp_130_0_d3.json'
 
 export function useGraphData() {
   // Helper: traverse tree and collect all branches (root-to-leaf paths)

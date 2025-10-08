@@ -12,7 +12,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Allow importing static backend files from the sibling backend/ directory
+      'backend': fileURLToPath(new URL('../backend', import.meta.url)),
     },
   },
 })

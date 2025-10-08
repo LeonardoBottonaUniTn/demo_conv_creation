@@ -38,7 +38,7 @@ import { useGraphData } from '../../composables/useGraphData'
 import { useGraphPositions } from '../../composables/useGraphPositions'
 import type { ArgumentNode, ChatMessage } from '../../types/graph'
 import D3Tree from './D3Tree.vue'
-import bp1300d3 from '@/backend/bp_130_0_d3.json'
+import bp1300d3 from 'backend/bp_130_0_d3.json'
 
 interface Props {
   title?: string
