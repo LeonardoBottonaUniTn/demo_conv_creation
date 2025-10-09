@@ -16,7 +16,12 @@
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="graph-visualization">
         <!-- D3Tree visualization for testing -->
-        <D3Tree :treeData="bp1300d3" :width="800" :height="600" @addToChat="handleAddToChat" />
+        <D3Tree
+          :treeData="currentBranchNodes"
+          :width="800"
+          :height="600"
+          @addToChat="handleAddToChat"
+        />
       </div>
     </div>
 
@@ -38,7 +43,6 @@ import { useGraphData } from '../../composables/useGraphData'
 import { useGraphPositions } from '../../composables/useGraphPositions'
 import type { ArgumentNode, ChatMessage } from '../../types/graph'
 import D3Tree from './D3Tree.vue'
-import bp1300d3 from 'backend/bp_130_0_d3.json'
 
 interface Props {
   title?: string

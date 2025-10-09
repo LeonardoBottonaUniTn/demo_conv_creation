@@ -1,7 +1,10 @@
 // Composable for managing graph data and state
-import { ref, computed, type Ref } from 'vue'
-import type { ArgumentNode, BranchesData, Position } from '../types/graph'
-import discussionData from 'backend/bp_130_0_d3.json'
+import { ref, computed } from 'vue'
+import type { ArgumentNode, BranchesData } from '../types/graph'
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+
+let discussionData: any = null
 
 export function useGraphData() {
   // Helper: traverse tree and collect all branches (root-to-leaf paths)
@@ -26,7 +29,7 @@ export function useGraphData() {
     return branches
   }
 
-  const discussionBranches = ref<BranchesData>(collectBranches(discussionData))
+  const discussionBranches = ref<BranchesData>([])
   const selectedBranch = ref(0)
   const loading = ref(true)
   const error = ref('')
@@ -45,6 +48,10 @@ export function useGraphData() {
   const loadDiscussionData = async () => {
     try {
       loading.value = true
+      // fetch discussion from backend API
+      const res = await fetch(`${API_BASE}/api/discussion`)
+      if (!res.ok) throw new Error(`Failed to load discussion: ${res.status}`)
+      discussionData = await res.json()
       discussionBranches.value = collectBranches(discussionData)
       loading.value = false
     } catch (err) {

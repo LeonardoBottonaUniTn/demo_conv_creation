@@ -1,3 +1,5 @@
 fastapi
 uvicorn
 sqlite-utils
+starlette
+python-multipart

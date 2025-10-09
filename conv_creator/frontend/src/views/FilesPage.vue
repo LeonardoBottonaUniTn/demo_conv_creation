@@ -8,6 +8,13 @@
     </div>
 
     <div class="container">
+      <div v-if="loadError" class="error-banner">
+        <div class="error-content">
+          <strong>Error loading files:</strong>
+          <span class="error-msg">{{ loadError }}</span>
+          <button class="retry-button" @click="fetchFiles">Retry</button>
+        </div>
+      </div>
       <div class="page-description">
         <p>Upload and manage your discussion files</p>
       </div>
@@ -191,75 +198,35 @@ const totalSize = computed(() => {
   return files.value.reduce((sum, file) => sum + file.size, 0)
 })
 
-// Load existing files from backend directory
-onMounted(async () => {
+// Load existing files from backend via API
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://127.0.0.1:8000'
+
+const loadError = ref<string | null>(null)
+
+async function fetchFiles() {
+  loadError.value = null
   try {
-    // Load the existing files from the backend directory
-    const existingFiles = [
-      { name: 'bp_130_0.json', type: 'json', path: 'backend/bp_130_0.json' },
-      { name: 'bp_130_0_d3.json', type: 'json', path: 'backend/bp_130_0_d3.json' },
-      { name: 'bp_130_users.json', type: 'json', path: 'backend/bp_130_users.json' },
-      { name: 'V2_Should_all_drugs_be_legalised.pkl', type: 'pkl', path: null },
-    ]
-
-    // Load files with their actual content
-    for (const file of existingFiles) {
-      try {
-        let content = null
-        let fileSize = 0
-
-            if (file.type === 'json' && file.path) {
-          // Try to import JSON files directly using static imports
-          try {
-            if (file.name === 'bp_130_0.json') {
-              const module = await import(/* @vite-ignore */ file.path)
-              content = module.default
-            } else if (file.name === 'bp_130_0_d3.json') {
-              const module = await import(/* @vite-ignore */ file.path)
-              content = module.default
-            } else if (file.name === 'bp_130_users.json') {
-              const module = await import(/* @vite-ignore */ file.path)
-              content = module.default
-            }
-
-            if (content) {
-              fileSize = JSON.stringify(content).length
-            }
-          } catch (importError) {
-            content = `Could not load JSON file. This might be because the file is not properly configured for import in Vite.`
-            console.warn(`Import failed for ${file.name}:`, importError)
-          }
-        } else if (file.type === 'pkl') {
-          // For pkl files, we can't load them directly in the browser
-          content =
-            'PKL files cannot be previewed in the browser. This is a Python pickle file that needs to be processed on the server.'
-          fileSize = 0
-        }
-
-        files.value.push({
-          id: Math.random().toString(36).substr(2, 9),
-          name: file.name,
-          type: file.type,
-          size: fileSize,
-          uploadDate: new Date(Date.now() - Math.floor(Math.random() * 10000000000)),
-          content: content,
-        })
-      } catch (fileError) {
-        console.error(`Error loading file ${file.name}:`, fileError)
-        // Add file without content if loading fails
-        files.value.push({
-          id: Math.random().toString(36).substr(2, 9),
-          name: file.name,
-          type: file.type,
-          size: 0,
-          uploadDate: new Date(Date.now() - Math.floor(Math.random() * 10000000000)),
-          content: `Error loading file: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`,
-        })
-      }
-    }
-  } catch (error) {
-    console.error('Error loading existing files:', error)
+    const res = await fetch(`${API_BASE}/api/files`)
+    if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
+    const list = await res.json()
+    files.value = list.map((f: any) => ({
+      id: String(f.id ?? Math.random().toString(36).substr(2, 9)),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+      uploadDate: new Date(f.uploadDate),
+      content: null,
+    }))
+  } catch (err: any) {
+    const msg = err?.message ?? String(err)
+    console.error('Error loading existing files:', msg)
+    loadError.value = msg
+    files.value = []
   }
+}
+
+onMounted(() => {
+  fetchFiles()
 })
 
 const triggerFileSelect = () => {
@@ -282,32 +249,26 @@ const handleDrop = (event: DragEvent) => {
   }
 }
 
+// Upload handler: send files to backend and add returned metadata to list
 const handleFiles = (fileList: File[]) => {
-  fileList.forEach((file) => {
-    const fileItem: FileItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      type: file.name.split('.').pop()?.toLowerCase() || 'unknown',
-      size: file.size,
-      uploadDate: new Date(),
+  fileList.forEach(async (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error('Upload failed')
+      const data = await res.json()
+      files.value.push({
+        id: String(data.file.id ?? Math.random().toString(36).substr(2, 9)),
+        name: data.file.name,
+        type: data.file.type,
+        size: data.file.size,
+        uploadDate: new Date(data.file.uploadDate),
+        content: null,
+      })
+    } catch (err) {
+      alert('Upload failed: ' + String(err))
     }
-
-    // Read file content
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        if (fileItem.type === 'json') {
-          fileItem.content = JSON.parse(e.target?.result as string)
-        } else {
-          fileItem.content = e.target?.result
-        }
-      } catch (error) {
-        console.error('Error reading file:', error)
-      }
-    }
-    reader.readAsText(file)
-
-    files.value.push(fileItem)
   })
 }
 
@@ -325,31 +286,29 @@ const clearSelection = () => {
 }
 
 const previewFile = (file: FileItem) => {
-  let content = 'Content not available'
-
-  if (file.content) {
-    if (file.type === 'json') {
-      // Pretty print JSON content
-      content =
-        typeof file.content === 'string' ? file.content : JSON.stringify(file.content, null, 2)
-    } else if (file.type === 'pkl') {
-      // For pkl files, show the placeholder message
-      content = file.content
-    } else {
-      // For other file types, convert to string
-      content =
-        typeof file.content === 'string' ? file.content : JSON.stringify(file.content, null, 2)
+  previewModal.value = { show: true, file, content: 'Loading...' }
+  ;(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(file.name)}`)
+      if (!res.ok) {
+        previewModal.value.content = `Failed to load file: ${res.status}`
+        return
+      }
+      // backend returns JSON for .json files, message for pkl, or file response
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const data = await res.json()
+        previewModal.value.content = JSON.stringify(data, null, 2)
+      } else {
+        // try text
+        const text = await res.text()
+        previewModal.value.content = text
+      }
+    } catch (err) {
+      console.error('Error fetching file preview:', err)
+      previewModal.value.content = `Error: ${err instanceof Error ? err.message : String(err)}`
     }
-  } else {
-    content =
-      'File content could not be loaded. This might be because the file was not properly imported or there was an error reading it.'
-  }
-
-  previewModal.value = {
-    show: true,
-    file,
-    content,
-  }
+  })()
 }
 
 const closePreview = () => {
@@ -357,31 +316,51 @@ const closePreview = () => {
 }
 
 const downloadFile = (file: FileItem) => {
-  // Create download link
-  const content = file.content ? JSON.stringify(file.content, null, 2) : ''
-  const blob = new Blob([content], { type: 'application/octet-stream' })
-  const url = URL.createObjectURL(blob)
-
-  const a = document.createElement('a')
-  a.href = url
-  a.download = file.name
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  // Download via backend static endpoint
+  const url = `${API_BASE}/api/files/${encodeURIComponent(file.name)}`
+  // open in new tab to trigger download, the backend will set filename
+  window.open(url, '_blank')
 }
 
 const deleteFile = (fileId: string) => {
   if (confirm('Are you sure you want to delete this file?')) {
-    files.value = files.value.filter((f) => f.id !== fileId)
-    selectedFiles.value = selectedFiles.value.filter((id) => id !== fileId)
+    const file = files.value.find((f) => f.id === fileId)
+    if (!file) return
+    ;(async () => {
+      try {
+        // call id-based delete endpoint
+        const res = await fetch(`${API_BASE}/api/files/id/${encodeURIComponent(file.id)}`, {
+          method: 'DELETE',
+        })
+        if (!res.ok) throw new Error('Delete failed')
+        files.value = files.value.filter((f) => f.id !== fileId)
+        selectedFiles.value = selectedFiles.value.filter((id) => id !== fileId)
+      } catch (err) {
+        alert('Failed to delete file: ' + String(err))
+      }
+    })()
   }
 }
 
+// ...existing code...
+
 const deleteSelectedFiles = () => {
   if (confirm(`Are you sure you want to delete ${selectedFiles.value.length} file(s)?`)) {
-    files.value = files.value.filter((f) => !selectedFiles.value.includes(f.id))
-    selectedFiles.value = []
+    ;(async () => {
+      const ids = [...selectedFiles.value]
+      for (const id of ids) {
+        try {
+          const res = await fetch(`${API_BASE}/api/files/id/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+          })
+          if (!res.ok) throw new Error('Delete failed')
+          files.value = files.value.filter((f) => f.id !== id)
+          selectedFiles.value = selectedFiles.value.filter((i) => i !== id)
+        } catch (err) {
+          alert('Failed to delete file id=' + id + ': ' + String(err))
+        }
+      }
+    })()
   }
 }
 

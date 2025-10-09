@@ -95,7 +95,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import usersData from 'backend/bp_130_users.json'
+import { useUsers } from '../../../composables/useUsers'
 
 const props = defineProps({
   modelValue: {
@@ -121,13 +121,17 @@ const selectedAddressees = ref([])
 const addresseesDropdownOpen = ref(false)
 
 onMounted(() => {
-  users.value = usersData
+  // load users from backend via composable
+  const { loadUsers, availablePersonas } = useUsers()
+  loadUsers().then(() => {
+    users.value = availablePersonas.value.map((p) => ({ speaker: p.name, ...p }))
 
-  // If this is the first message, automatically select all users as addressees
-  if (props.isFirstMessage) {
-    selectedAddressees.value = users.value.map((user) => user.speaker)
-    emit('update:addressees', selectedAddressees.value)
-  }
+    // If this is the first message, automatically select all users as addressees
+    if (props.isFirstMessage) {
+      selectedAddressees.value = users.value.map((user) => user.speaker)
+      emit('update:addressees', selectedAddressees.value)
+    }
+  })
 
   // Add click-outside listener
   document.addEventListener('click', handleClickOutside)

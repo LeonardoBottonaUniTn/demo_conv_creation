@@ -1,17 +1,10 @@
 import { ref, reactive } from 'vue'
-import type { ChatUser, UserPersona, RawUserData } from '../types/chat'
-import usersData from 'backend/bp_130_users.json'
+import type { ChatUser, UserPersona } from '../types/chat'
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
 
 export function useUsers() {
-  const personas = ref<UserPersona[]>(
-    (usersData as RawUserData[]).map((user) => ({
-      name: user.speaker,
-      description: user.argumentative_style,
-      stance: user.stance as 'positive' | 'negative',
-      stance_summary: user.stance_summary,
-      subunits: user.subunits,
-    })),
-  )
+  const personas = ref<UserPersona[]>([])
 
   const currentUser = reactive<ChatUser>({
     id: 1,
@@ -19,18 +12,36 @@ export function useUsers() {
     isOnline: true,
   })
 
-  const availablePersonas = ref<ChatUser[]>(
-    personas.value.map((persona, index) => ({
-      id: index + 2,
-      name: persona.name,
-      description: persona.description,
-      stance: persona.stance,
-      isOnline: true,
-      lastSeen: new Date(),
-    })),
-  )
+  const availablePersonas = ref<ChatUser[]>([])
+  const currentPersona = ref<ChatUser | null>(null)
 
-  const currentPersona = ref<ChatUser>(availablePersonas.value[0])
+  const loadUsers = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/users`)
+      if (!res.ok) throw new Error('Failed to load users')
+      const data = await res.json()
+      personas.value = data.map((user: any) => ({
+        name: user.speaker,
+        description: user.argumentative_style,
+        stance: user.stance,
+        stance_summary: user.stance_summary,
+        subunits: user.subunits,
+      }))
+
+      availablePersonas.value = personas.value.map((persona, index) => ({
+        id: index + 2,
+        name: persona.name,
+        description: persona.description,
+        stance: persona.stance as 'positive' | 'negative',
+        isOnline: true,
+        lastSeen: new Date(),
+      }))
+
+      currentPersona.value = availablePersonas.value[0] || null
+    } catch (err) {
+      console.error('Failed to load personas from backend:', err)
+    }
+  }
 
   const switchPersona = (personaId: number) => {
     const persona = availablePersonas.value.find((p) => p.id === personaId)
@@ -75,6 +86,7 @@ export function useUsers() {
     currentUser,
     availablePersonas,
     currentPersona,
+    loadUsers,
     switchPersona,
     getPersonaResponses,
     getRandomPersona,
