@@ -365,8 +365,18 @@ const deleteSelectedFiles = () => {
 }
 
 const useSelectedFiles = () => {
-  // Navigate to discussion page with selected files
-  router.push('/discussion')
+  // Navigate to discussion page with selected files (pass first selected file name as query)
+  if (selectedFiles.value.length === 0) {
+    router.push('/discussion')
+    return
+  }
+  const firstId = selectedFiles.value[0]
+  const file = files.value.find((f) => f.id === firstId)
+  if (file) {
+    router.push({ path: '/discussion', query: { file: file.name } })
+  } else {
+    router.push('/discussion')
+  }
 }
 
 const formatBytes = (bytes: number) => {

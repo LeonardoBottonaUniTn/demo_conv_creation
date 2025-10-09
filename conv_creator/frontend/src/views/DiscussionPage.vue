@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import DiscussionGraph from '../components/graph/DiscussionGraph.vue'
 import TelegramChat from '../components/chat/TelegramChat.vue'
 import { useUsers } from '../composables/useUsers'
@@ -11,21 +11,31 @@ interface ChatMessage {
   time: string
 }
 
-const { getThesisStatement, getRandomPersona } = useUsers()
+const { getThesisStatement, getRandomPersona, loadUsers } = useUsers()
 
-// Initialize messages with the thesis statement as the first message
-const thesisAuthor = getRandomPersona()
-const messages = ref<ChatMessage[]>([
-  {
+// Initialize messages empty; we'll populate after loading personas so we have a valid thesis author
+const messages = ref<ChatMessage[]>([])
+const thesisAuthor = ref<{ name: string }>({ name: 'Thesis' })
+
+// Load personas from backend and create the initial thesis message
+onMounted(async () => {
+  try {
+    await loadUsers()
+  } catch (e) {
+    // loadUsers already logs errors; continue with fallback
+  }
+
+  thesisAuthor.value = getRandomPersona() || { name: 'Thesis' }
+  messages.value.push({
     id: 1,
-    sender: thesisAuthor.name,
+    sender: thesisAuthor.value.name,
     text: getThesisStatement(),
     time: new Date(Date.now() - 120000).toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     }),
-  },
-])
+  })
+})
 
 const chatInputValue = ref('')
 
@@ -40,7 +50,6 @@ const handleUpdateInput = (value: string) => {
   chatInputValue.value = value
 }
 
-import { onMounted } from 'vue'
 const telegramChatRef = ref()
 const handleAddFromGraph = (messageData: {
   text: string
@@ -51,7 +60,7 @@ const handleAddFromGraph = (messageData: {
   chatInputValue.value = messageData.text
   // Set the sender in the chat input (default to thesis author)
   if (telegramChatRef.value && telegramChatRef.value.setSender) {
-    telegramChatRef.value.setSender(thesisAuthor.name)
+    telegramChatRef.value.setSender(thesisAuthor.value.name)
   }
 }
 </script>

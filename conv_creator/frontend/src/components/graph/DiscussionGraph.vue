@@ -1,7 +1,7 @@
 <template>
   <div class="graph-section">
     <div class="graph-header">
-      <h2>{{ title }}</h2>
+      <h2>{{ displayedTitle }}</h2>
       <GraphControls
         :show-all-branches="showAllBranches"
         :branches="discussionBranches"
@@ -16,12 +16,24 @@
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="graph-visualization">
         <!-- D3Tree visualization for testing -->
-        <D3Tree
-          :treeData="currentBranchNodes"
-          :width="800"
-          :height="600"
-          @addToChat="handleAddToChat"
-        />
+        <D3Tree :treeData="treeForRender" :width="800" :height="600" @addToChat="handleAddToChat" />
+
+        <div v-if="discussionRoot" class="debug-panel" style="margin-top: 12px">
+          <h4 style="margin: 0 0 8px 0">Debug: discussion root preview</h4>
+          <div style="font-size: 13px; color: #555; margin-bottom: 6px">
+            Root id: {{ discussionRoot.id || '—' }} — branches: {{ discussionBranches.length }}
+          </div>
+          <pre
+            style="
+              max-height: 220px;
+              overflow: auto;
+              background: #f6f8fa;
+              padding: 8px;
+              border-radius: 6px;
+            "
+            >{{ JSON.stringify(discussionRoot, null, 2) }}</pre
+          >
+        </div>
       </div>
     </div>
 
@@ -36,7 +48,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import GraphControls from './controls/GraphControls.vue'
 import Modal from '../shared/Modal.vue'
 import { useGraphData } from '../../composables/useGraphData'
@@ -56,6 +69,12 @@ const props = withDefaults(defineProps<Props>(), {
   title: 'Climate Change Discussion',
 })
 
+const route = useRoute()
+const displayedTitle = computed(() => {
+  const q = (route.query.file as string) || ''
+  return q ? `Discussion: ${q}` : props.title
+})
+
 const emit = defineEmits<Emits>()
 
 // Graph container ref
@@ -73,6 +92,8 @@ const {
   expandBranch,
   isBranchExpanded,
   expandedBranches,
+  discussionRoot,
+  getBranchChain,
 } = useGraphData()
 
 const {
@@ -87,6 +108,13 @@ const {
 // Local state
 const selectedNode = ref<ArgumentNode | null>(null)
 const showAllBranches = ref(true)
+
+const treeForRender = computed(() => {
+  if (showAllBranches.value)
+    return discussionRoot.value || { id: 'empty', text: 'No data', children: [] }
+  const chain = getBranchChain(selectedBranch.value)
+  return chain || discussionRoot.value || { id: 'empty', text: 'No data', children: [] }
+})
 
 // Event handlers
 const handleToggleView = () => {
@@ -127,7 +155,9 @@ const handleAddToChat = (node: ArgumentNode, branchIndex: number) => {
 
 // Initialize data
 onMounted(() => {
-  loadDiscussionData()
+  const route = useRoute()
+  const fname = (route.query.file as string) || undefined
+  loadDiscussionData(fname)
 })
 </script>
 
