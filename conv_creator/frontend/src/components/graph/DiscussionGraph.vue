@@ -1,15 +1,6 @@
 <template>
   <div class="graph-section">
-    <div class="graph-header">
-      <h2>{{ displayedTitle }}</h2>
-      <GraphControls
-        :show-all-branches="showAllBranches"
-        :branches="discussionBranches"
-        :selected-branch="selectedBranch"
-        @toggle-view="handleToggleView"
-        @select-branch="handleSelectBranch"
-      />
-    </div>
+    <!-- Header removed to free vertical space (title and branch controls not needed) -->
 
     <div class="graph-container" ref="graphContainer">
       <div v-if="loading" class="loading">Loading discussion data...</div>
@@ -48,9 +39,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import GraphControls from './controls/GraphControls.vue'
+// GraphControls removed — header controls not needed
 import Modal from '../shared/Modal.vue'
 import { useGraphData } from '../../composables/useGraphData'
 import { useGraphPositions } from '../../composables/useGraphPositions'
@@ -107,23 +98,10 @@ const {
 
 // Local state
 const selectedNode = ref<ArgumentNode | null>(null)
-const showAllBranches = ref(true)
 
 const treeForRender = computed(() => {
-  if (showAllBranches.value)
-    return discussionRoot.value || { id: 'empty', text: 'No data', children: [] }
-  const chain = getBranchChain(selectedBranch.value)
-  return chain || discussionRoot.value || { id: 'empty', text: 'No data', children: [] }
+  return discussionRoot.value || { id: 'empty', text: 'No data', children: [] }
 })
-
-// Event handlers
-const handleToggleView = () => {
-  showAllBranches.value = !showAllBranches.value
-}
-
-const handleSelectBranch = (index: number) => {
-  selectedBranch.value = index
-}
 
 const handleSelectNode = (node: ArgumentNode) => {
   selectedNode.value = node
@@ -155,10 +133,19 @@ const handleAddToChat = (node: ArgumentNode, branchIndex: number) => {
 
 // Initialize data
 onMounted(() => {
-  const route = useRoute()
   const fname = (route.query.file as string) || undefined
   loadDiscussionData(fname)
 })
+
+// Reload when route query changes (select another file)
+watch(
+  () => route.query.file,
+  (nv, ov) => {
+    const fname = (nv as string) || undefined
+    console.log('Route file changed:', fname)
+    loadDiscussionData(fname)
+  },
+)
 </script>
 
 <style scoped>

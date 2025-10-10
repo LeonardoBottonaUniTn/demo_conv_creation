@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import DiscussionGraph from '../components/graph/DiscussionGraph.vue'
 import TelegramChat from '../components/chat/TelegramChat.vue'
+import FileSelectorModal from '../components/shared/FileSelectorModal.vue'
 import { useUsers } from '../composables/useUsers'
 
 interface ChatMessage {
@@ -16,6 +18,11 @@ const { getThesisStatement, getRandomPersona, loadUsers } = useUsers()
 // Initialize messages empty; we'll populate after loading personas so we have a valid thesis author
 const messages = ref<ChatMessage[]>([])
 const thesisAuthor = ref<{ name: string }>({ name: 'Thesis' })
+
+// Router/route and modal state
+const route = useRoute()
+const router = useRouter()
+const showFileSelector = ref(false)
 
 // Load personas from backend and create the initial thesis message
 onMounted(async () => {
@@ -35,6 +42,10 @@ onMounted(async () => {
       minute: '2-digit',
     }),
   })
+
+  // Show selector if no file query
+  const fname = route.query.file as string | undefined
+  if (!fname) showFileSelector.value = true
 })
 
 const chatInputValue = ref('')
@@ -63,6 +74,12 @@ const handleAddFromGraph = (messageData: {
     telegramChatRef.value.setSender(thesisAuthor.value.name)
   }
 }
+
+// Collapse state for left graph panel
+const graphCollapsed = ref(false)
+const toggleGraphCollapsed = () => {
+  graphCollapsed.value = !graphCollapsed.value
+}
 </script>
 
 <template>
@@ -71,27 +88,61 @@ const handleAddFromGraph = (messageData: {
     <div class="nav-header">
       <router-link to="/" class="back-button"> ← Back to Home </router-link>
       <h1 class="page-title">Discussion Interface</h1>
+      <button class="open-file-button" @click="showFileSelector = true">Choose file</button>
+      <!-- Collapse toggle placed in the header for quick access -->
+      <button
+        class="collapse-header-button"
+        @click="toggleGraphCollapsed"
+        :aria-pressed="graphCollapsed"
+        :title="graphCollapsed ? 'Open graph' : 'Collapse graph'"
+      >
+        <span v-if="!graphCollapsed">◀</span>
+        <span v-else>▶</span>
+      </button>
       <div class="nav-spacer"></div>
     </div>
 
     <!-- Main Discussion Container -->
     <div class="discussion-container">
-      <!-- Left side - Graph representation (3/4 width) -->
-      <DiscussionGraph @add-message="handleAddFromGraph" />
+      <!-- Left side - Graph representation (collapsible) -->
+      <div :class="['graph-wrapper', { collapsed: graphCollapsed }]">
+        <button
+          class="collapse-toggle"
+          @click="toggleGraphCollapsed"
+          :aria-pressed="graphCollapsed"
+        >
+          <span v-if="!graphCollapsed">◀</span>
+          <span v-else>▶</span>
+        </button>
+        <DiscussionGraph @add-message="handleAddFromGraph" />
+      </div>
 
       <!-- Right side - Telegram chat simulation (1/4 width) -->
-      <TelegramChat
-        ref="telegramChatRef"
-        :messages="messages"
-        :input-value="chatInputValue"
-        @send-message="handleSendMessage"
-        @update-input="handleUpdateInput"
-        title="Discussion Chat"
-        status="Online"
-        current-user="You"
-        input-placeholder="Type a message..."
-      />
+      <div class="chat-wrapper" :class="{ expanded: graphCollapsed }">
+        <TelegramChat
+          ref="telegramChatRef"
+          :messages="messages"
+          :input-value="chatInputValue"
+          @send-message="handleSendMessage"
+          @update-input="handleUpdateInput"
+          title="Discussion Chat"
+          status="Online"
+          current-user="You"
+          input-placeholder="Type a message..."
+        />
+      </div>
     </div>
+
+    <FileSelectorModal
+      v-if="showFileSelector"
+      @select="
+        (name) => {
+          showFileSelector = false
+          router.push({ path: '/discussion', query: { file: name } })
+        }
+      "
+      @close="() => (showFileSelector = false)"
+    />
   </div>
 </template>
 
@@ -156,9 +207,99 @@ const handleAddFromGraph = (messageData: {
   overflow: hidden; /* Prevent content from breaking layout */
 }
 
+.discussion-container > .chat-wrapper,
 .discussion-container > :last-child {
   flex: 0 0 320px; /* Fixed width for chat, but allow it to shrink on very small screens */
   min-width: 280px;
+}
+
+.chat-wrapper {
+  display: flex;
+  min-width: 0;
+}
+
+.chat-wrapper.expanded {
+  flex: 1 1 auto !important; /* force the chat to grow when graph is collapsed */
+  min-width: 0 !important;
+  width: auto !important;
+}
+
+/* Extra safety: when collapsed, make the chat occupy remaining space explicitly */
+.discussion-container .chat-wrapper.expanded {
+  flex-basis: 0 !important;
+}
+
+/* Wrapper for the left graph section so it can be collapsed */
+.graph-wrapper {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  transition:
+    width 220ms ease,
+    margin 220ms ease;
+  overflow: hidden;
+}
+
+.graph-wrapper.collapsed {
+  width: 0;
+  min-width: 0;
+  margin-right: 0;
+  flex: 0 0 0; /* collapse to zero space */
+  padding: 0;
+}
+
+/* Hide the graph content when collapsed but keep the toggle visible */
+.graph-wrapper.collapsed > * {
+  /* keep component mounted but hidden */
+  display: none;
+}
+
+.collapse-toggle {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  z-index: 40;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid #e3e6ea;
+  background: #ffffffcc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.graph-wrapper.collapsed .collapse-toggle {
+  left: 4px;
+}
+
+.graph-wrapper .collapse-toggle:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(100, 150, 250, 0.12);
+}
+
+/* Hide the original in-graph toggle since we have a header button now */
+.graph-wrapper .collapse-toggle {
+  display: none;
+}
+
+.collapse-header-button {
+  margin-left: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #dfe4e8;
+  background: white;
+  cursor: pointer;
+  color: #343a40;
+  font-weight: 600;
+}
+
+.collapse-header-button:hover {
+  background: #f1f5f8;
 }
 
 /* Responsive design */
