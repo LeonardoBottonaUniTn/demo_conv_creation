@@ -40,7 +40,8 @@ fi
 
 # Start backend
 echo "Starting backend (uvicorn)..."
-"$UVICORN_BIN" main:app --reload --host 127.0.0.1 --port 8000 --root-path "" &
+# The FastAPI app lives in backend/main.py, run uvicorn with the module path backend.main:app
+"$UVICORN_BIN" backend.main:app --reload --host 127.0.0.1 --port 8000 --root-path "" &
 BACKEND_PID=$!
 echo "Backend PID: $BACKEND_PID"
 
