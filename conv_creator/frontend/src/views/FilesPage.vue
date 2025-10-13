@@ -8,134 +8,216 @@
     </div>
 
     <div class="container">
-      <div v-if="loadError" class="error-banner">
-        <div class="error-content">
-          <strong>Error loading files:</strong>
-          <span class="error-msg">{{ loadError }}</span>
-          <button class="retry-button" @click="fetchFiles">Retry</button>
+      <!-- Folder Breadcrumbs and Create Folder -->
+      <section class="folder-bar">
+        <div class="breadcrumbs">
+          <span v-for="(crumb, idx) in breadcrumbs" :key="crumb.path">
+            <a href="#" @click.prevent="changeFolder(crumb.path)">{{ crumb.name }}</a>
+            <span v-if="idx < breadcrumbs.length - 1"> / </span>
+          </span>
         </div>
-      </div>
-      <div class="page-description">
-        <p>Upload and manage your discussion files</p>
-      </div>
-
-      <section class="upload-section">
-        <div
-          class="upload-area"
-          :class="{ 'drag-over': isDragOver }"
-          @drop="handleDrop"
-          @dragover.prevent
-          @dragenter.prevent="isDragOver = true"
-          @dragleave.prevent="isDragOver = false"
-        >
-          <div class="upload-content">
-            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7,10 12,15 17,10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <h3>Drop files here or click to upload</h3>
-            <p>Supported formats: JSON, PKL, CSV</p>
-            <input
-              ref="fileInput"
-              type="file"
-              multiple
-              accept=".json,.pkl,.csv"
-              @change="handleFileSelect"
-              class="file-input"
-            />
-            <button class="upload-button" @click="triggerFileSelect">Choose Files</button>
-          </div>
+        <div class="create-folder">
+          <input v-model="newFolderName" placeholder="New folder name" />
+          <button class="secondary-button" @click="createFolder">Create</button>
         </div>
       </section>
 
-      <!-- Files List -->
-      <section class="files-section">
-        <div class="section-header">
-          <h2>Available Files</h2>
-          <div class="file-stats">
-            <span>{{ files.length }} files</span>
-            <span>{{ formatBytes(totalSize) }}</span>
+      <!-- Main content: upload (root-only) + combined folders/files grid -->
+      <div class="content-area">
+        <div v-if="loadError" class="error-banner">
+          <div class="error-content">
+            <strong>Error loading files:</strong>
+            <span class="error-msg">{{ loadError }}</span>
+            <button class="retry-button" @click="fetchFiles">Retry</button>
           </div>
         </div>
 
-        <div class="files-grid" v-if="files.length > 0">
+        <div class="page-description">
+          <p>Upload and manage your discussion files</p>
+        </div>
+
+        <!-- Hidden global file input (always present) -->
+        <input
+          ref="fileInput"
+          type="file"
+          multiple
+          accept=".json,.pkl,.csv"
+          @change="handleFileSelect"
+          class="file-input"
+        />
+
+        <!-- Show the large drop-area only at root level -->
+        <section class="upload-section" v-if="!currentFolder">
           <div
-            v-for="file in files"
-            :key="file.id"
-            class="file-card"
-            :class="{ selected: selectedFiles.includes(file.id) }"
-            @click="toggleFileSelection(file.id)"
+            class="upload-area"
+            :class="{ 'drag-over': isDragOver }"
+            @drop="handleDrop"
+            @dragover.prevent
+            @dragenter.prevent="isDragOver = true"
+            @dragleave.prevent="isDragOver = false"
           >
-            <div class="file-icon">
-              <svg
-                v-if="file.type === 'json'"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14,2 14,8 20,8" />
-                <path d="M10 12a2 2 0 0 0 2 2c1.02 0 2-.98 2-2s-.98-2-2-2-2 .98-2 2z" />
+            <div class="upload-content">
+              <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7,10 12,15 17,10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <svg
-                v-else-if="file.type === 'pkl'"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14,2 14,8 20,8" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14,2 14,8 20,8" />
-              </svg>
-            </div>
-            <div class="file-info">
-              <h4 class="file-name">{{ file.name }}</h4>
-              <p class="file-details">
-                <span class="file-type">{{ file.type.toUpperCase() }}</span>
-                <span class="file-size">{{ formatBytes(file.size) }}</span>
-                <span class="file-date">{{ formatDate(file.uploadDate) }}</span>
-              </p>
-            </div>
-            <div class="file-actions">
-              <button class="action-button" @click.stop="previewFile(file)" title="Preview">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-              <button class="action-button" @click.stop="downloadFile(file)" title="Download">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7,10 12,15 17,10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-              </button>
-              <button class="action-button delete" @click.stop="deleteFile(file.id)" title="Delete">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </svg>
-              </button>
+              <h3>Drop files here or click to upload</h3>
+              <p>Supported formats: JSON, PKL, CSV</p>
+              <button class="upload-button" @click="triggerFileSelect">Choose Files</button>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div v-else class="empty-state">
-          <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14,2 14,8 20,8" />
-          </svg>
-          <h3>No files uploaded yet</h3>
-          <p>Upload your first discussion file to get started</p>
-        </div>
-      </section>
+        <!-- Files List (folders and files together) -->
+        <section class="files-section">
+          <div class="section-header">
+            <h2>Available Files</h2>
+            <div class="file-stats">
+              <span>{{ files.length }} files</span>
+              <span>{{ formatBytes(totalSize) }}</span>
+            </div>
+          </div>
 
+          <div class="files-grid">
+            <!-- Render folders first as file-like cards -->
+            <template v-for="f in visibleFolders" :key="f">
+              <div
+                class="file-card folder-card"
+                @click="changeFolder(currentFolder ? currentFolder + '/' + f : f)"
+              >
+                <div class="file-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M3 7v10a2 2 0 0 0 2 2h14" />
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8" />
+                  </svg>
+                </div>
+                <div class="file-info">
+                  <h4 class="file-name">{{ f || 'root' }}</h4>
+                  <p class="file-details"><span class="file-type">FOLDER</span></p>
+                </div>
+                <div class="file-actions">
+                  <button
+                    class="folder-menu-btn action-button"
+                    @click.stop="toggleFolderMenu(f)"
+                    :aria-expanded="menuOpenFor === f"
+                    title="More"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <circle cx="5" cy="12" r="1.5" />
+                      <circle cx="12" cy="12" r="1.5" />
+                      <circle cx="19" cy="12" r="1.5" />
+                    </svg>
+                  </button>
+                  <div v-if="menuOpenFor === f" class="folder-menu" @click.stop>
+                    <button class="menu-item" @click.stop="onCreateSubfolder(f)">
+                      Create subfolder
+                    </button>
+                    <button class="menu-item danger" @click.stop="onDeleteFolder(f)">
+                      Delete folder
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- When inside a folder, show an Add-file card matching files' look -->
+            <div v-if="currentFolder" class="file-card add-card" @click="triggerFileSelect">
+              <div class="file-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                </svg>
+              </div>
+              <div class="file-info">
+                <h4 class="file-name">Add files</h4>
+                <p class="file-details">Click to add files to this folder</p>
+              </div>
+            </div>
+
+            <!-- Then render file cards -->
+            <template v-for="file in files" :key="file.id">
+              <div
+                class="file-card"
+                :class="{ selected: selectedFiles.includes(file.id) }"
+                @click="toggleFileSelection(file.id)"
+              >
+                <div class="file-icon">
+                  <svg
+                    v-if="file.type === 'json'"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                    <path d="M10 12a2 2 0 0 0 2 2c1.02 0 2-.98 2-2s-.98-2-2-2-2 .98-2 2z" />
+                  </svg>
+                  <svg
+                    v-else-if="file.type === 'pkl'"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                  </svg>
+                </div>
+                <div class="file-info">
+                  <h4 class="file-name">{{ file.name }}</h4>
+                  <p class="file-details">
+                    <span class="file-type">{{ file.type.toUpperCase() }}</span>
+                    <span class="file-size">{{ formatBytes(file.size) }}</span>
+                    <span class="file-date">{{ formatDate(file.uploadDate) }}</span>
+                  </p>
+                </div>
+                <div class="file-actions">
+                  <button class="action-button" @click.stop="previewFile(file)" title="Preview">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                  <button class="action-button" @click.stop="downloadFile(file)" title="Download">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7,10 12,15 17,10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </button>
+                  <button
+                    class="action-button delete"
+                    @click.stop="deleteFile(file.id)"
+                    title="Delete"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- If nothing to show, render empty-state -->
+            <div v-if="visibleFolders.length === 0 && files.length === 0" class="empty-state">
+              <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14,2 14,8 20,8" />
+              </svg>
+              <h3>No files uploaded yet</h3>
+              <p>Upload your first discussion file to get started</p>
+            </div>
+          </div>
+        </section>
+      </div>
       <!-- Bulk Actions -->
       <section v-if="selectedFiles.length > 0" class="bulk-actions">
         <div class="selection-info">
@@ -181,6 +263,7 @@ interface FileItem {
   type: string
   size: number
   uploadDate: Date
+  path?: string
   content?: any
 }
 
@@ -198,6 +281,38 @@ const totalSize = computed(() => {
   return files.value.reduce((sum, file) => sum + file.size, 0)
 })
 
+const currentFolder = ref('') // '' means root
+const folders = ref<string[]>([])
+const allFolders = ref<string[]>([])
+
+// compute folders visible under the currentFolder (immediate children)
+const visibleFolders = computed(() => {
+  const cur = (currentFolder.value || '').replace(/\\/g, '/')
+  const prefix = cur ? cur + '/' : ''
+  const children = new Set<string>()
+  for (const f of allFolders.value) {
+    const nf = f.replace(/\\/g, '/')
+    if (nf === cur) continue
+    if (!nf.startsWith(prefix)) continue
+    const rem = nf.slice(prefix.length)
+    const first = rem.split('/')[0]
+    if (first) children.add(first)
+  }
+  return Array.from(children).sort()
+})
+
+const breadcrumbs = computed(() => {
+  if (!currentFolder.value) return [{ name: 'root', path: '' }]
+  const parts = currentFolder.value.split('/').filter(Boolean)
+  const crumbs = [{ name: 'root', path: '' }]
+  let acc = ''
+  for (const p of parts) {
+    acc = acc ? acc + '/' + p : p
+    crumbs.push({ name: p, path: acc })
+  }
+  return crumbs
+})
+
 // Load existing files from backend via API
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://127.0.0.1:8000'
 
@@ -206,7 +321,11 @@ const loadError = ref<string | null>(null)
 async function fetchFiles() {
   loadError.value = null
   try {
-    const res = await fetch(`${API_BASE}/api/files`)
+    // request files for current folder
+    const folderQuery = currentFolder.value
+      ? `?folder=${encodeURIComponent(currentFolder.value)}`
+      : ''
+    const res = await fetch(`${API_BASE}/api/files${folderQuery}`)
     if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
     const list = await res.json()
     files.value = list.map((f: any) => ({
@@ -215,8 +334,16 @@ async function fetchFiles() {
       type: f.type,
       size: f.size,
       uploadDate: new Date(f.uploadDate),
+      path: f.path || f.name,
       content: null,
     }))
+    // also fetch folders (full list) and compute visible children
+    const resF = await fetch(`${API_BASE}/api/folders`)
+    if (resF.ok) {
+      const js = await resF.json()
+      allFolders.value = js.folders || []
+      folders.value = allFolders.value // keep for compatibility if other code uses it
+    }
   } catch (err: any) {
     const msg = err?.message ?? String(err)
     console.error('Error loading existing files:', msg)
@@ -254,6 +381,7 @@ const handleFiles = (fileList: File[]) => {
   fileList.forEach(async (file) => {
     const form = new FormData()
     form.append('file', file)
+    if (currentFolder.value) form.append('path', currentFolder.value)
     try {
       const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: form })
       if (!res.ok) throw new Error('Upload failed')
@@ -264,6 +392,7 @@ const handleFiles = (fileList: File[]) => {
         type: data.file.type,
         size: data.file.size,
         uploadDate: new Date(data.file.uploadDate),
+        path: data.file.path || data.file.name,
         content: null,
       })
     } catch (err) {
@@ -289,7 +418,8 @@ const previewFile = (file: FileItem) => {
   previewModal.value = { show: true, file, content: 'Loading...' }
   ;(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(file.name)}`)
+      const path = file.path || file.name
+      const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(path)}`)
       if (!res.ok) {
         previewModal.value.content = `Failed to load file: ${res.status}`
         return
@@ -317,7 +447,8 @@ const closePreview = () => {
 
 const downloadFile = (file: FileItem) => {
   // Download via backend static endpoint
-  const url = `${API_BASE}/api/files/${encodeURIComponent(file.name)}`
+  const path = file.path || file.name
+  const url = `${API_BASE}/api/files/${encodeURIComponent(path)}`
   // open in new tab to trigger download, the backend will set filename
   window.open(url, '_blank')
 }
@@ -328,8 +459,9 @@ const deleteFile = (fileId: string) => {
     if (!file) return
     ;(async () => {
       try {
-        // call id-based delete endpoint
-        const res = await fetch(`${API_BASE}/api/files/id/${encodeURIComponent(file.id)}`, {
+        // call path-based delete endpoint if available
+        const target = file.path || file.name
+        const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(target)}`, {
           method: 'DELETE',
         })
         if (!res.ok) throw new Error('Delete failed')
@@ -350,7 +482,9 @@ const deleteSelectedFiles = () => {
       const ids = [...selectedFiles.value]
       for (const id of ids) {
         try {
-          const res = await fetch(`${API_BASE}/api/files/id/${encodeURIComponent(id)}`, {
+          const file = files.value.find((f) => f.id === id)
+          const target = file?.path || file?.name || id
+          const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(target)}`, {
             method: 'DELETE',
           })
           if (!res.ok) throw new Error('Delete failed')
@@ -361,6 +495,72 @@ const deleteSelectedFiles = () => {
         }
       }
     })()
+  }
+}
+
+const changeFolder = (path: string) => {
+  currentFolder.value = path
+  fetchFiles()
+}
+
+const newFolderName = ref('')
+const createFolder = async () => {
+  if (!newFolderName.value) return
+  const target = currentFolder.value
+    ? currentFolder.value + '/' + newFolderName.value
+    : newFolderName.value
+  try {
+    const res = await fetch(`${API_BASE}/api/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: target }),
+    })
+    if (!res.ok) throw new Error('Create folder failed')
+    newFolderName.value = ''
+    await fetchFiles()
+  } catch (err) {
+    alert('Failed to create folder: ' + String(err))
+  }
+}
+
+const onDeleteFolder = async (folderName: string) => {
+  const target = currentFolder.value ? currentFolder.value + '/' + folderName : folderName
+  if (!confirm(`Delete folder '${target}' and all its contents? This cannot be undone.`)) return
+  try {
+    const res = await fetch(`${API_BASE}/api/folders/${encodeURIComponent(target)}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) throw new Error('Delete failed')
+    // refresh folders and files
+    await fetchFiles()
+  } catch (err) {
+    alert('Failed to delete folder: ' + String(err))
+  }
+}
+
+const menuOpenFor = ref<string | null>(null)
+
+const toggleFolderMenu = (folderName: string) => {
+  menuOpenFor.value = menuOpenFor.value === folderName ? null : folderName
+}
+
+const onCreateSubfolder = async (folderName: string) => {
+  const sub = prompt('Subfolder name:')
+  if (!sub) return
+  const target = currentFolder.value
+    ? currentFolder.value + '/' + folderName + '/' + sub
+    : folderName + '/' + sub
+  try {
+    const res = await fetch(`${API_BASE}/api/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: target }),
+    })
+    if (!res.ok) throw new Error('Create subfolder failed')
+    await fetchFiles()
+    menuOpenFor.value = null
+  } catch (err) {
+    alert('Failed to create subfolder: ' + String(err))
   }
 }
 
@@ -415,6 +615,11 @@ const formatDate = (date: Date) => {
   flex: 1;
   overflow-y: auto;
   box-sizing: border-box;
+}
+
+.content-grid {
+  /* removed two-column layout: folders are rendered inline with files now */
+  display: block;
 }
 
 .nav-header {
@@ -486,6 +691,141 @@ const formatDate = (date: Date) => {
 
 .upload-section {
   margin-bottom: 3rem;
+}
+
+.main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.folder-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.breadcrumbs a {
+  color: #3498db;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.create-folder {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.create-folder input {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #dfe6e9;
+  min-width: 180px;
+}
+
+.folder-card {
+  /* folder items reuse file-card look when rendered inline */
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: all 0.18s ease;
+  cursor: pointer;
+}
+
+.folder-card .file-icon svg {
+  color: #f39c12;
+}
+
+.add-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.add-card .file-icon svg {
+  width: 3rem;
+  height: 3rem;
+  color: #3498db;
+}
+
+.folder-card {
+  background: white;
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+  border: 1px solid transparent;
+  min-height: 110px;
+  text-align: center;
+}
+
+.folder-menu-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #7f8c8d;
+}
+
+.folder-menu-btn svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.folder-menu {
+  position: absolute;
+  top: 36px;
+  right: 6px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e9ecef;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.folder-menu .menu-item {
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-menu .menu-item:hover {
+  background: #f6f8fa;
+}
+
+.folder-menu .menu-item.danger {
+  color: #e74c3c;
+}
+
+.folder-card svg {
+  margin: 0;
+}
+
+.folder-name {
+  font-weight: 600;
+  color: #2c3e50;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 0.95rem;
 }
 
 .upload-area {
@@ -570,8 +910,8 @@ const formatDate = (date: Date) => {
 
 .files-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
   width: 100%;
 }
 
@@ -830,6 +1170,10 @@ const formatDate = (date: Date) => {
 
   .page-description {
     margin: 1.5rem 0;
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
   }
 
   .files-grid {

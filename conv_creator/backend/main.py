@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import json
 import sqlite3
+import shutil
 from typing import List
 from datetime import datetime
 
@@ -12,6 +13,9 @@ app = FastAPI()
 
 # Configuration
 BACKEND_DIR = os.path.dirname(__file__)  # this file lives in the backend/ folder
+FILES_ROOT = os.path.join(BACKEND_DIR, 'files_root')
+if not os.path.exists(FILES_ROOT):
+    os.makedirs(FILES_ROOT, exist_ok=True)
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -130,15 +134,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Optionally mount a static route for direct downloads (keeps API separate)
+# mount files_root for direct static serving (useful for images/graphics)
+app.mount("/files", StaticFiles(directory=FILES_ROOT), name="files")
+# keep original backend static mount as well
 app.mount("/static-backend", StaticFiles(directory=BACKEND_DIR), name="static-backend")
 
 
-def _safe_filename(filename: str) -> str:
-    # prevent path traversal
-    if os.path.basename(filename) != filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    return filename
+def _safe_path(rel_path: str) -> str:
+    """Return a safe absolute path inside FILES_ROOT for the given relative path.
+
+    Prevents path traversal. Accepts nested relative paths like 'graphics/img.png'.
+    Absolute paths are rejected.
+    """
+    if os.path.isabs(rel_path):
+        raise HTTPException(status_code=400, detail="Absolute paths are not allowed")
+    # normalize and join against FILES_ROOT
+    full = os.path.normpath(os.path.join(FILES_ROOT, rel_path))
+    files_root_norm = os.path.normpath(FILES_ROOT)
+    # ensure the resulting path is inside FILES_ROOT
+    if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
+        raise HTTPException(status_code=400, detail="Invalid or unsafe path")
+    return full
 
 
 def _file_metadata(path: str) -> dict:
@@ -153,31 +169,49 @@ def _file_metadata(path: str) -> dict:
 
 
 @app.get("/api/files")
-def list_files() -> List[dict]:
-    """List available files from the SQLite metadata table. If the table is empty, fallback to scanning the directory."""
+def list_files(folder: str | None = None) -> List[dict]:
+    """List available files from the SQLite metadata table.
+
+    If folder is provided it filters results to that subfolder (relative to files_root).
+    If DB is empty it will scan FILES_ROOT (or the provided folder) to populate the DB.
+    """
     rows = _list_files_db()
     if rows:
+        if folder:
+            # normalize stored path and compare prefix
+            folder_prefix = os.path.normpath(os.path.join('files_root', folder))
+            filtered = [r for r in rows if os.path.normpath(r['path']).startswith(folder_prefix)]
+            return filtered
         return rows
 
-    # fallback: scan directory and populate DB
+    # fallback: walk FILES_ROOT and populate DB (respect folder if provided)
     allowed_exts = {'.json', '.pkl', '.csv'}
     entries = []
-    for name in os.listdir(BACKEND_DIR):
-        full = os.path.join(BACKEND_DIR, name)
-        if os.path.isfile(full) and os.path.splitext(name)[1].lower() in allowed_exts:
-            rec = _upsert_file_record(full)
-            entries.append(rec)
+    if folder:
+        start = _safe_path(folder)
+        for root, _, files in os.walk(start):
+            for name in files:
+                if os.path.splitext(name)[1].lower() in allowed_exts:
+                    full = os.path.join(root, name)
+                    rec = _upsert_file_record(full)
+                    entries.append(rec)
+    else:
+        for root, _, files in os.walk(FILES_ROOT):
+            for name in files:
+                if os.path.splitext(name)[1].lower() in allowed_exts:
+                    full = os.path.join(root, name)
+                    rec = _upsert_file_record(full)
+                    entries.append(rec)
     return entries
 
 
-@app.get("/api/files/{filename}")
+@app.get("/api/files/{filename:path}")
 def get_file(filename: str):
     """Return file content for JSON files, a message for PKL, otherwise provide a download.
 
     Frontend can use this to preview JSON, download binaries, or receive a helpful message for pickle files.
     """
-    _safe_filename(filename)
-    full = os.path.join(BACKEND_DIR, filename)
+    full = _safe_path(filename)
     if not os.path.exists(full):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -206,38 +240,64 @@ def get_file_by_id(file_id: int):
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
-    filename = row[0]
-    # reuse existing filename-based logic
-    return get_file(filename)
+    # row -> (name, path)
+    relpath = row[1]
+    # construct absolute path and ensure it's inside FILES_ROOT
+    full = os.path.normpath(os.path.join(BACKEND_DIR, relpath))
+    files_root_norm = os.path.normpath(FILES_ROOT)
+    if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
+        raise HTTPException(status_code=400, detail='Invalid file path stored in DB')
+    if not os.path.exists(full):
+        raise HTTPException(status_code=404, detail='File not found')
+    ext = os.path.splitext(full)[1].lower()
+    if ext == '.json':
+        with open(full, 'r', encoding='utf-8') as f:
+            try:
+                return JSONResponse(content=json.load(f))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to parse JSON: {e}")
+    elif ext == '.pkl':
+        return {"message": "This is a Python pickle file. Use the download endpoint to retrieve it or process it on the server."}
+    else:
+        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
 
 
 @app.delete('/api/files/id/{file_id}')
 def delete_file_by_id(file_id: int):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('SELECT name FROM files WHERE id = ?', (file_id,))
+    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
-    filename = row[0]
-    # remove file from disk
-    full = os.path.join(BACKEND_DIR, filename)
+    name = row[0]
+    relpath = row[1]
+    full = os.path.normpath(os.path.join(BACKEND_DIR, relpath))
     if os.path.exists(full):
         try:
             os.remove(full)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to remove file: {e}')
     # remove db record
-    _delete_file_record(filename)
-    return {"message": "Deleted", "file": filename, "id": file_id}
+    _delete_file_record(name)
+    return {"message": "Deleted", "file": name, "id": file_id}
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), path: str | None = Form(None)):
     """Upload a file into the backend directory. Overwrites if name exists."""
-    filename = _safe_filename(file.filename)
-    dest = os.path.join(BACKEND_DIR, filename)
+    # For uploads we only accept a single filename (no nested paths within file.filename)
+    if os.path.basename(file.filename) != file.filename:
+        raise HTTPException(status_code=400, detail="Invalid upload filename")
+    filename = file.filename
+    if path:
+        # ensure the folder is safe and exists (create if missing)
+        folder_full = _safe_path(path)
+        os.makedirs(folder_full, exist_ok=True)
+        dest = os.path.join(folder_full, filename)
+    else:
+        dest = os.path.join(FILES_ROOT, filename)
     try:
         with open(dest, 'wb') as out:
             content = await file.read()
@@ -249,23 +309,27 @@ async def upload_file(file: UploadFile = File(...)):
     return {"message": "Uploaded", "file": rec}
 
 
-@app.delete("/api/files/{filename}")
+@app.delete("/api/files/{filename:path}")
 def delete_file(filename: str):
-    _safe_filename(filename)
-    full = os.path.join(BACKEND_DIR, filename)
+    # allow deleting nested files under files_root
+    full = _safe_path(filename)
     if not os.path.exists(full):
         raise HTTPException(status_code=404, detail="File not found")
     os.remove(full)
     # delete DB record if present, return id if available
     try:
-        # fetch id first
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute('SELECT id FROM files WHERE name = ?', (filename,))
+        rel = os.path.relpath(full, BACKEND_DIR)
+        cur.execute('SELECT id FROM files WHERE path = ?', (rel,))
         row = cur.fetchone()
+        if not row:
+            cur.execute('SELECT id FROM files WHERE name = ?', (os.path.basename(filename),))
+            row = cur.fetchone()
         file_id = row[0] if row else None
         conn.close()
-        _delete_file_record(filename)
+        # delete by name to keep compatibility
+        _delete_file_record(os.path.basename(filename))
     except Exception:
         file_id = None
     return {"message": "Deleted", "file": filename, "id": file_id}
@@ -276,18 +340,78 @@ def migrate_files():
     """Scan backend directory for allowed files and populate/update the SQLite metadata table."""
     allowed_exts = {'.json', '.pkl', '.csv'}
     entries = []
-    for name in os.listdir(BACKEND_DIR):
-        full = os.path.join(BACKEND_DIR, name)
-        if os.path.isfile(full) and os.path.splitext(name)[1].lower() in allowed_exts:
-            rec = _upsert_file_record(full)
-            entries.append(rec)
+    for root, _, files in os.walk(FILES_ROOT):
+        for name in files:
+            if os.path.splitext(name)[1].lower() in allowed_exts:
+                full = os.path.join(root, name)
+                rec = _upsert_file_record(full)
+                entries.append(rec)
     return {"migrated": len(entries), "files": entries}
+
+
+@app.get('/api/folders')
+def list_folders():
+    """Return all folders under files_root as relative paths."""
+    results = []
+    for root, dirs, _ in os.walk(FILES_ROOT):
+        for d in dirs:
+            full = os.path.join(root, d)
+            rel = os.path.relpath(full, FILES_ROOT)
+            results.append(rel)
+    return {"folders": sorted(results)}
+
+
+@app.post('/api/folders')
+def create_folder(data: dict):
+    """Create a folder under files_root. Expects JSON body {path: 'a/b'}"""
+    target = data.get('path') if isinstance(data, dict) else None
+    if not target:
+        raise HTTPException(status_code=400, detail='Missing path')
+    # create folder safely
+    full = _safe_path(target)
+    try:
+        os.makedirs(full, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to create folder: {e}')
+    return {"created": True, "path": target}
+
+
+@app.delete('/api/folders/{folder_path:path}')
+def delete_folder(folder_path: str):
+    """Delete a folder under files_root and remove corresponding DB records.
+
+    The folder_path is relative to files_root (e.g., 'graphics' or 'a/b').
+    Deleting the root (empty path) is not allowed.
+    """
+    if not folder_path or folder_path in ('.', '/'):
+        raise HTTPException(status_code=400, detail='Cannot delete root folder')
+    # resolve safe path and ensure it's a dir inside FILES_ROOT
+    full = _safe_path(folder_path)
+    if not os.path.isdir(full):
+        raise HTTPException(status_code=404, detail='Folder not found')
+
+    # Attempt to remove directory tree first
+    try:
+        shutil.rmtree(full)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to remove folder: {e}')
+
+    # Remove DB records for files that lived under this folder
+    relprefix = os.path.normpath(os.path.join('files_root', folder_path))
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM files WHERE path LIKE ?", (relprefix + '%',))
+    removed = cur.rowcount
+    conn.commit()
+    conn.close()
+
+    return {"deleted": True, "path": folder_path, "db_files_removed": removed}
 
 
 @app.get("/api/discussion")
 def get_discussion():
     """Return the discussion data (bp_130_0_d3.json) so the frontend can fetch it via API."""
-    path = os.path.join(BACKEND_DIR, 'bp_130_0_d3.json')
+    path = os.path.join(FILES_ROOT, 'bp_130_0_d3.json')
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Discussion file not found")
     with open(path, 'r', encoding='utf-8') as f:
@@ -297,7 +421,7 @@ def get_discussion():
 @app.get("/api/users")
 def get_users():
     """Return the users metadata (bp_130_users.json)"""
-    path = os.path.join(BACKEND_DIR, 'bp_130_users.json')
+    path = os.path.join(FILES_ROOT, 'bp_130_users.json')
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Users file not found")
     with open(path, 'r', encoding='utf-8') as f:
