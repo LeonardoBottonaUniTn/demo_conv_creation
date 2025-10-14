@@ -8,20 +8,6 @@
     </div>
 
     <div class="container">
-      <!-- Folder Breadcrumbs and Create Folder -->
-      <section class="folder-bar">
-        <div class="breadcrumbs">
-          <span v-for="(crumb, idx) in breadcrumbs" :key="crumb.path">
-            <a href="#" @click.prevent="changeFolder(crumb.path)">{{ crumb.name }}</a>
-            <span v-if="idx < breadcrumbs.length - 1"> / </span>
-          </span>
-        </div>
-        <div class="create-folder">
-          <input v-model="newFolderName" placeholder="New folder name" />
-          <button class="secondary-button" @click="createFolder">Create</button>
-        </div>
-      </section>
-
       <!-- Main content: upload (root-only) + combined folders/files grid -->
       <div class="content-area">
         <div v-if="loadError" class="error-banner">
@@ -69,6 +55,20 @@
           </div>
         </section>
 
+        <!-- Folder Breadcrumbs and Create Folder -->
+        <section class="folder-bar">
+          <div class="breadcrumbs">
+            <span v-for="(crumb, idx) in breadcrumbs" :key="crumb.path">
+              <a href="#" @click.prevent="changeFolder(crumb.path)">{{ crumb.name }}</a>
+              <span v-if="idx < breadcrumbs.length - 1"> / </span>
+            </span>
+          </div>
+          <div class="create-folder">
+            <input v-model="newFolderName" placeholder="New folder name" />
+            <button class="secondary-button" @click="createFolder">Create</button>
+          </div>
+        </section>
+
         <!-- Files List (folders and files together) -->
         <section class="files-section">
           <div class="section-header">
@@ -84,7 +84,12 @@
             <template v-for="f in visibleFolders" :key="f">
               <div
                 class="file-card folder-card"
+                :class="{ 'drop-target': hoverFolder === f }"
                 @click="changeFolder(currentFolder ? currentFolder + '/' + f : f)"
+                @dragover.prevent
+                @dragenter.prevent="onFolderDragEnter(f)"
+                @dragleave="onFolderDragLeave(f)"
+                @drop.prevent="onDropOnFolder(f, $event)"
               >
                 <div class="file-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -140,9 +145,44 @@
             <template v-for="file in files" :key="file.id">
               <div
                 class="file-card"
-                :class="{ selected: selectedFiles.includes(file.id) }"
+                :class="{
+                  selected: selectedFiles.includes(file.id),
+                  dragging: draggingId === file.id,
+                }"
+                style="position: relative"
                 @click="toggleFileSelection(file.id)"
+                draggable="true"
+                @dragstart="onDragStart(file, $event)"
+                @dragend="onDragEnd"
               >
+                <!-- Overlay banner in top-right for invalid (not-conformed) files -->
+                <div
+                  class="structure-overlay"
+                  v-if="file.structureOk === 0"
+                  title="Structure warning"
+                >
+                  <button
+                    class="structure-banner"
+                    @click.stop.prevent="openStructureWarning(file)"
+                    aria-label="Open structure warning"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                      ></path>
+                      <line x1="12" y1="9" x2="12" y2="13"></line>
+                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span>Structure warning</span>
+                  </button>
+                </div>
                 <div class="file-icon">
                   <svg
                     v-if="file.type === 'json'"
@@ -226,9 +266,44 @@
         <div class="bulk-buttons">
           <button class="secondary-button" @click="clearSelection">Clear Selection</button>
           <button class="primary-button" @click="useSelectedFiles">Use in Discussion</button>
+          <button class="secondary-button" @click="openMoveModalForSelected">Move</button>
           <button class="danger-button" @click="deleteSelectedFiles">Delete Selected</button>
         </div>
       </section>
+      <!-- Move modal -->
+      <div v-if="moveModal.show" class="modal-overlay" @click="closeMoveModal">
+        <div class="modal-content" @click.stop>
+          <div class="modal-header">
+            <h3>Move file(s)</h3>
+            <button class="close-button" @click="closeMoveModal">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p>Select destination folder:</p>
+            <select
+              v-model="moveModal.dest"
+              style="width: 100%; padding: 0.5rem; border-radius: 6px; border: 1px solid #dfe6e9"
+            >
+              <option :value="''">root</option>
+              <option v-for="f in allFolders" :key="f" :value="f">{{ f }}</option>
+            </select>
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end">
+              <button class="secondary-button" @click="closeMoveModal">Cancel</button>
+              <button class="primary-button" @click.prevent="() => moveFiles()">Move</button>
+            </div>
+            <p
+              v-if="moveModal.targets.length"
+              style="margin-top: 1rem; color: #7f8c8d; font-size: 0.9rem"
+            >
+              Moving {{ moveModal.targets.length }} item(s)
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- File Preview Modal -->
@@ -245,6 +320,41 @@
         </div>
         <div class="modal-body">
           <pre class="preview-content">{{ previewModal.content }}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Structure Warning Modal -->
+    <div v-if="warningModal.show" class="modal-overlay" @click="closeWarning">
+      <div class="modal-content warning-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Structure issues — {{ warningModal.file?.name }}</h3>
+          <button class="close-button" @click="closeWarning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p>The file does not conform to the expected discussion structure. Issues found:</p>
+          <ul class="issue-list">
+            <li v-for="(iss, i) in warningModal.issues" :key="i">{{ iss }}</li>
+          </ul>
+          <details style="margin-top: 1rem">
+            <summary>Preview (truncated)</summary>
+            <pre class="preview-content">{{ warningModal.preview }}</pre>
+          </details>
+          <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem">
+            <button class="secondary-button" @click="closeWarning">Close</button>
+            <button
+              class="primary-button"
+              disabled
+              title="Future action: try to auto-fix or reformat the file"
+            >
+              Attempt fix (coming soon)
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -265,6 +375,7 @@ interface FileItem {
   uploadDate: Date
   path?: string
   content?: any
+  structureOk?: number | null
 }
 
 const files = ref<FileItem[]>([])
@@ -275,6 +386,14 @@ const previewModal = ref({
   show: false,
   file: null as FileItem | null,
   content: '',
+})
+
+// Warning modal for structure issues
+const warningModal = ref({
+  show: false,
+  file: null as FileItem | null,
+  issues: [] as string[],
+  preview: '',
 })
 
 const totalSize = computed(() => {
@@ -328,15 +447,46 @@ async function fetchFiles() {
     const res = await fetch(`${API_BASE}/api/files${folderQuery}`)
     if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
     const list = await res.json()
-    files.value = list.map((f: any) => ({
-      id: String(f.id ?? Math.random().toString(36).substr(2, 9)),
-      name: f.name,
-      type: f.type,
-      size: f.size,
-      uploadDate: new Date(f.uploadDate),
-      path: f.path || f.name,
-      content: null,
-    }))
+    files.value = list.map((f: any) => {
+      // normalize stored path: older DB rows may contain a 'files_root/...' prefix
+      const rawPath = f.path || f.name
+      const normalizedPath = String(rawPath).replace(/^files_root[\/]/, '')
+      return {
+        id: String(f.id ?? Math.random().toString(36).substr(2, 9)),
+        name: f.name,
+        type: f.type,
+        size: f.size,
+        uploadDate: new Date(f.uploadDate),
+        path: normalizedPath,
+        content: null,
+        structureOk: typeof f.structure_ok !== 'undefined' ? f.structure_ok : null,
+      }
+    })
+    // If we're at root, show only top-level files (those not living in subfolders).
+    // If we're inside a folder, show only immediate children of that folder
+    // (do not include files that live in nested subfolders). The backend may
+    // return files recursively; enforce a client-side boundary here to avoid
+    // duplicate appearances of the same file both in parent and child folder.
+    const normalizeRel = (p: string) => p.replace(/^files_root\//, '')
+    if (!currentFolder.value) {
+      files.value = files.value.filter((fi) => {
+        const p = (fi.path || fi.name) as string
+        const rel = normalizeRel(p)
+        return !rel.includes('/')
+      })
+    } else {
+      const cur = currentFolder.value.replace(/^\/|\/$/g, '')
+      const prefix = cur + '/'
+      files.value = files.value.filter((fi) => {
+        const p = (fi.path || fi.name) as string
+        const rel = normalizeRel(p)
+        // must live inside the folder
+        if (!rel.startsWith(prefix)) return false
+        // drop the folder prefix and ensure there's no further '/'
+        const rem = rel.slice(prefix.length)
+        return !rem.includes('/')
+      })
+    }
     // also fetch folders (full list) and compute visible children
     const resF = await fetch(`${API_BASE}/api/folders`)
     if (resF.ok) {
@@ -394,6 +544,7 @@ const handleFiles = (fileList: File[]) => {
         uploadDate: new Date(data.file.uploadDate),
         path: data.file.path || data.file.name,
         content: null,
+        structureOk: typeof data.file.structure_ok !== 'undefined' ? data.file.structure_ok : null,
       })
     } catch (err) {
       alert('Upload failed: ' + String(err))
@@ -418,8 +569,10 @@ const previewFile = (file: FileItem) => {
   previewModal.value = { show: true, file, content: 'Loading...' }
   ;(async () => {
     try {
-      const path = file.path || file.name
-      const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(path)}`)
+      console.log('Fetching preview for file', file)
+
+      const url = getFileApiUrl(file, 'get')
+      const res = await fetch(url)
       if (!res.ok) {
         previewModal.value.content = `Failed to load file: ${res.status}`
         return
@@ -441,15 +594,92 @@ const previewFile = (file: FileItem) => {
   })()
 }
 
+// Helper: build API URL for a file, prefer id-based endpoints when id is numeric
+function getFileApiUrl(file: FileItem, action: 'get' | 'delete' | 'download' = 'get') {
+  // if id looks numeric, prefer id-based route
+  const idStr = String(file.id ?? '')
+  const isNumericId = /^[0-9]+$/.test(idStr)
+  if (isNumericId) {
+    // for get/download we reuse the same id endpoint; delete has its own id route too
+    return `${API_BASE}/api/files/id/${idStr}`
+  }
+  const path = file.path || file.name
+  return `${API_BASE}/api/files/${encodeURIComponent(path)}`
+}
+
+// Client-side structure checker (mirrors backend rules) — returns array of issue messages
+function checkStructure(data: any): string[] {
+  const issues: string[] = []
+
+  function checkNode(node: any, path: string) {
+    if (typeof node !== 'object' || node === null || Array.isArray(node)) {
+      issues.push(`${path}: node is not an object`)
+      return
+    }
+    const required = ['id', 'speaker', 'text', 'children']
+    for (const k of required) {
+      if (!(k in node)) issues.push(`${path}: missing required key '${k}'`)
+    }
+    if ('id' in node && typeof node.id !== 'string') issues.push(`${path}.id: expected string`)
+    if ('speaker' in node && typeof node.speaker !== 'string')
+      issues.push(`${path}.speaker: expected string`)
+    if ('text' in node && typeof node.text !== 'string')
+      issues.push(`${path}.text: expected string`)
+    if ('children' in node) {
+      if (!Array.isArray(node.children)) {
+        issues.push(`${path}.children: expected array`)
+      } else {
+        node.children.forEach((ch: any, idx: number) => checkNode(ch, `${path}.children[${idx}]`))
+      }
+    }
+  }
+
+  if (Array.isArray(data)) {
+    data.forEach((el, i) => checkNode(el, `root[${i}]`))
+  } else {
+    checkNode(data, 'root')
+  }
+  return issues
+}
+
+async function openStructureWarning(file: FileItem) {
+  warningModal.value = { show: true, file, issues: [], preview: '' }
+  try {
+    const url = getFileApiUrl(file, 'get')
+    const res = await fetch(url)
+    if (!res.ok) {
+      warningModal.value.issues = [`Failed to fetch file: ${res.status}`]
+      return
+    }
+    const contentType = res.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const data = await res.json()
+      // run client-side checker
+      const issues = checkStructure(data)
+      warningModal.value.issues = issues.length ? issues : ['Unknown structural issue']
+      // also keep a small preview
+      warningModal.value.preview = JSON.stringify(data, null, 2).slice(0, 2000)
+    } else {
+      const text = await res.text()
+      warningModal.value.issues = ['File is not JSON — cannot analyze structure']
+      warningModal.value.preview = text.slice(0, 2000)
+    }
+  } catch (err: any) {
+    warningModal.value.issues = [String(err?.message ?? err)]
+  }
+}
+
 const closePreview = () => {
   previewModal.value.show = false
 }
 
+const closeWarning = () => {
+  warningModal.value.show = false
+}
+
 const downloadFile = (file: FileItem) => {
-  // Download via backend static endpoint
-  const path = file.path || file.name
-  const url = `${API_BASE}/api/files/${encodeURIComponent(path)}`
-  // open in new tab to trigger download, the backend will set filename
+  // open the appropriate endpoint in a new tab (backend sets Content-Disposition)
+  const url = getFileApiUrl(file, 'download')
   window.open(url, '_blank')
 }
 
@@ -459,11 +689,10 @@ const deleteFile = (fileId: string) => {
     if (!file) return
     ;(async () => {
       try {
-        // call path-based delete endpoint if available
-        const target = file.path || file.name
-        const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(target)}`, {
-          method: 'DELETE',
-        })
+        const file = files.value.find((f) => f.id === fileId)
+        if (!file) throw new Error('File not found')
+        const url = getFileApiUrl(file, 'delete')
+        const res = await fetch(url, { method: 'DELETE' })
         if (!res.ok) throw new Error('Delete failed')
         files.value = files.value.filter((f) => f.id !== fileId)
         selectedFiles.value = selectedFiles.value.filter((id) => id !== fileId)
@@ -483,10 +712,9 @@ const deleteSelectedFiles = () => {
       for (const id of ids) {
         try {
           const file = files.value.find((f) => f.id === id)
-          const target = file?.path || file?.name || id
-          const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(target)}`, {
-            method: 'DELETE',
-          })
+          if (!file) throw new Error('File not found')
+          const url = getFileApiUrl(file, 'delete')
+          const res = await fetch(url, { method: 'DELETE' })
           if (!res.ok) throw new Error('Delete failed')
           files.value = files.value.filter((f) => f.id !== id)
           selectedFiles.value = selectedFiles.value.filter((i) => i !== id)
@@ -579,6 +807,125 @@ const useSelectedFiles = () => {
   }
 }
 
+// Move modal state and functions
+const moveModal = ref({ show: false, dest: '' as string, targets: [] as string[] })
+
+const openMoveModalForSelected = () => {
+  moveModal.value.show = true
+  moveModal.value.targets = [...selectedFiles.value]
+  // default destination empty (root)
+  moveModal.value.dest = ''
+}
+
+const closeMoveModal = () => {
+  moveModal.value.show = false
+  moveModal.value.targets = []
+  moveModal.value.dest = ''
+}
+
+const moveFiles = async (targetsArg?: string[], destArg?: string) => {
+  const targets = targetsArg ?? moveModal.value.targets
+  const dest = destArg ?? moveModal.value.dest
+  if (!targets.length) return closeMoveModal()
+  try {
+    // Map targets (which may be file ids) to file paths where possible
+    const targetsToSend = targets.map((t) => {
+      // if t looks like an id present in files, map to its path
+      const f = files.value.find((fi) => fi.id === String(t))
+      if (f && f.path) return f.path
+      return t
+    })
+
+    const res = await fetch(`${API_BASE}/api/files/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets: targetsToSend, dest }),
+    })
+    const contentType = res.headers.get('content-type') || ''
+    const text = await res.text()
+    if (!res.ok) {
+      // try to parse JSON error message
+      try {
+        const j = JSON.parse(text)
+        throw new Error(j.detail || j.message || JSON.stringify(j))
+      } catch (_) {
+        throw new Error(text || `Move failed (${res.status})`)
+      }
+    }
+    // parse response JSON
+    let json: any = {}
+    try {
+      json = contentType.includes('application/json') ? JSON.parse(text) : {}
+    } catch (_) {
+      json = {}
+    }
+    if (json.errors && json.errors.length) {
+      alert('Move completed with errors:\n' + JSON.stringify(json.errors, null, 2))
+    }
+    await fetchFiles()
+    // remove moved from selection
+    selectedFiles.value = selectedFiles.value.filter((id) => !targets.includes(id))
+    closeMoveModal()
+  } catch (err) {
+    alert('Failed to move files: ' + String(err))
+    console.error('Move error details:', err)
+  }
+}
+
+// Drag & drop state and handlers
+const draggingId = ref<string | null>(null)
+const hoverFolder = ref<string | null>(null)
+
+const onDragStart = (file: FileItem, e: DragEvent) => {
+  draggingId.value = file.id
+  // if the file is not selected, treat drag as single-file drag
+  const targets = selectedFiles.value.includes(file.id) ? selectedFiles.value : [file.id]
+  // store ids in dataTransfer so other windows/components can inspect if needed
+  e.dataTransfer?.setData('application/json', JSON.stringify({ targets }))
+  e.dataTransfer!.effectAllowed = 'move'
+}
+
+const onDragEnd = () => {
+  draggingId.value = null
+  hoverFolder.value = null
+}
+
+const onFolderDragEnter = (folderName: string) => {
+  hoverFolder.value = folderName
+}
+
+const onFolderDragLeave = (folderName: string) => {
+  if (hoverFolder.value === folderName) hoverFolder.value = null
+}
+
+const onDropOnFolder = async (folderName: string, e: DragEvent) => {
+  e.preventDefault()
+  const payloadText = e.dataTransfer?.getData('application/json')
+  let targets: string[] = []
+  if (payloadText) {
+    try {
+      const parsed = JSON.parse(payloadText)
+      targets = parsed.targets || []
+    } catch {}
+  }
+  // If no dataTransfer payload, fallback to selectedFiles or draggingId
+  if (!targets.length) {
+    targets = selectedFiles.value.length
+      ? [...selectedFiles.value]
+      : draggingId.value
+        ? [draggingId.value]
+        : []
+  }
+  if (!targets.length) return
+  // call the move API with targets (ids) and dest folder
+  await moveFiles(
+    targets,
+    currentFolder.value ? currentFolder.value + '/' + folderName : folderName,
+  )
+  draggingId.value = null
+  hoverFolder.value = null
+}
+
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -615,6 +962,57 @@ const formatDate = (date: Date) => {
   flex: 1;
   overflow-y: auto;
   box-sizing: border-box;
+}
+
+/* structure badge styles */
+.structure-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: white;
+  margin-right: 0.5rem;
+}
+.structure-badge.ok {
+  background: #2ecc71;
+}
+.structure-badge.invalid {
+  background: #e74c3c;
+}
+.structure-badge.unknown {
+  background: #95a5a6;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* overlay badge for invalid files */
+.structure-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 40;
+}
+.structure-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(90deg, #ffb347, #ffcc33);
+  color: #3b2f00;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(255, 153, 51, 0.12);
+}
+.structure-banner svg {
+  stroke: #3b2f00;
 }
 
 .content-grid {
@@ -933,6 +1331,16 @@ const formatDate = (date: Date) => {
 .file-card.selected {
   border-color: #3498db;
   background: rgba(52, 152, 219, 0.05);
+}
+
+.file-card.dragging {
+  opacity: 0.6;
+  transform: scale(0.98);
+}
+
+.drop-target {
+  border: 2px dashed rgba(52, 152, 219, 0.6);
+  box-shadow: 0 6px 20px rgba(52, 152, 219, 0.08);
 }
 
 .file-icon {

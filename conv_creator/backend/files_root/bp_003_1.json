@@ -1,0 +1,242 @@
+[
+  {
+    "id": "1",
+    "speaker": "CG",
+    "text": "Saving millions of lives outweighs sovereignty and property rights principles.",
+    "target_id": "0"
+  },
+  {
+    "id": "1.1",
+    "speaker": "OO",
+    "text": "Sovereignty is a critical principle that should not be overridden by utilitarian arguments about water.",
+    "target_id": "1"
+  },
+  {
+    "id": "1.2",
+    "speaker": "OG",
+    "text": "Water usage affects others downstream, limiting full sovereignty over it; basic human rights to water override strict sovereignty claims.",
+    "target_id": "1"
+  },
+  {
+    "id": "1.3",
+    "speaker": "CO",
+    "text": "Sovereignty is instrumentally valuable because it secures buy-in, explaining why countries prefer voluntary agreements like the Paris Agreement.",
+    "target_id": "1"
+  },
+  {
+    "id": "1.1.1",
+    "speaker": "CO",
+    "text": "Regional, voluntary, and specific solutions tailored to local needs work better than coercive international control.",
+    "target_id": "1.1"
+  },
+  {
+    "id": "1.1.2",
+    "speaker": "OG",
+    "text": "Water should be managed as a global resource because it crosses borders and pollution or overuse in one country affects others.",
+    "target_id": "1.1"
+  },
+  {
+    "id": "1.1.3",
+    "speaker": "CG",
+    "text": "Problems cited by opposition are mechanistic and can be solved by structuring the international body intelligently.",
+    "target_id": "1.1"
+  },
+  {
+    "id": "1.2.1",
+    "speaker": "CG",
+    "text": "An international body can eliminate political tensions, impose cooperation obligations, and mobilize significant resources for water redistribution.",
+    "target_id": "1.2"
+  },
+  {
+    "id": "1.2.2",
+    "speaker": "OO",
+    "text": "Not all water sources cross borders; many are contained within one country making sovereignty over water legitimate.",
+    "target_id": "1.2"
+  },
+  {
+    "id": "1.2.3",
+    "speaker": "CO",
+    "text": "Regional cooperation allows tailored policies and better local knowledge than centralized international bodies.",
+    "target_id": "1.2"
+  },
+  {
+    "id": "1.3.1",
+    "speaker": "OG",
+    "text": "An international body, like an arm of the UN, can allocate water budgets, mediate crises, and ensure equitable distribution.",
+    "target_id": "1.3"
+  },
+  {
+    "id": "1.3.2",
+    "speaker": "CG",
+    "text": "Voluntary cooperation has failed due to economic interests, political tension, sovereignty concerns, and unpopularity.",
+    "target_id": "1.3"
+  },
+  {
+    "id": "1.3.3",
+    "speaker": "OO",
+    "text": "International bodies often apply broad principles that may not fit local contexts and representatives vote based on national interests.",
+    "target_id": "1.3"
+  },
+  {
+    "id": "1.1.1.1",
+    "speaker": "OG",
+    "text": "Examples like Israel-Syria conflicts show water disputes causing violence; international mediation can prevent this.",
+    "target_id": "1.1.1"
+  },
+  {
+    "id": "1.1.1.2",
+    "speaker": "OO",
+    "text": "An international body is likely worse at managing water due to power dynamics favoring stronger countries with more allies.",
+    "target_id": "1.1.1"
+  },
+  {
+    "id": "1.1.1.3",
+    "speaker": "CG",
+    "text": "Even if countries initially resist, they would cooperate under an international body due to incentives and long-term relations.",
+    "target_id": "1.1.1"
+  },
+  {
+    "id": "1.1.2.1",
+    "speaker": "CG",
+    "text": "Western countries have less interest in controlling African water and more incentives to cooperate to promote stability and economic allies.",
+    "target_id": "1.1.2"
+  },
+  {
+    "id": "1.1.2.2",
+    "speaker": "OO",
+    "text": "Land analogy: just because land is part of a global system doesn't mean countries lose control over it; same applies to water.",
+    "target_id": "1.1.2"
+  },
+  {
+    "id": "1.1.2.3",
+    "speaker": "CO",
+    "text": "Centralized international bodies produce one-size-fits-all policies detached from local contexts, lowering policy effectiveness.",
+    "target_id": "1.1.2"
+  },
+  {
+    "id": "1.1.3.1",
+    "speaker": "CO",
+    "text": "Developing countries have differing water management needs and regional interests, making unified international decisions ineffective.",
+    "target_id": "1.1.3"
+  },
+  {
+    "id": "1.1.3.2",
+    "speaker": "OG",
+    "text": "International management is preferable to violent conflict over water; collaboration and sanctions are better than war.",
+    "target_id": "1.1.3"
+  },
+  {
+    "id": "1.1.3.3",
+    "speaker": "OO",
+    "text": "International bodies lack accountability, are bureaucratic, and skewed by powerful countries influencing votes.",
+    "target_id": "1.1.3"
+  },
+  {
+    "id": "1.2.1.1",
+    "speaker": "CO",
+    "text": "There is an organic sense of urgency driving voluntary regional cooperation on water, demonstrated by existing treaties.",
+    "target_id": "1.2.1"
+  },
+  {
+    "id": "1.2.1.2",
+    "speaker": "OO",
+    "text": "World powers can use water control as leverage, turning off supplies as a coercive tool.",
+    "target_id": "1.2.1"
+  },
+  {
+    "id": "1.2.1.3",
+    "speaker": "OG",
+    "text": "Economic sanctions and international law mechanisms can encourage countries to comply, even if enforcement isn't perfect.",
+    "target_id": "1.2.1"
+  },
+  {
+    "id": "1.2.3.1",
+    "speaker": "OG",
+    "text": "Experts in an international body will guide decisions, reducing purely self-interested voting by countries uninvolved in disputes.",
+    "target_id": "1.2.3"
+  },
+  {
+    "id": "1.2.3.2",
+    "speaker": "OO",
+    "text": "Smaller countries like Ethiopia currently have some local leverage upstream that would be lost under international control.",
+    "target_id": "1.2.3"
+  },
+  {
+    "id": "1.2.3.3",
+    "speaker": "CG",
+    "text": "Western bias is real but positive, as Western countries have incentives and political pressure to act responsibly regarding water.",
+    "target_id": "1.2.3"
+  },
+  {
+    "id": "1.3.1.1",
+    "speaker": "CO",
+    "text": "Centralized bodies impose one-size-fits-all policies, are detached from local realities, and can politicize responsibility, reducing effectiveness.",
+    "target_id": "1.3.1"
+  },
+  {
+    "id": "1.3.1.2",
+    "speaker": "CG",
+    "text": "Water sanctions would require Security Council approval, providing checks and balances preventing abuse.",
+    "target_id": "1.3.1"
+  },
+  {
+    "id": "1.3.1.3",
+    "speaker": "OO",
+    "text": "Countries invest heavily in making water accessible and thus have sovereign rights over it, which an international body would undermine.",
+    "target_id": "1.3.1"
+  },
+  {
+    "id": "1.3.2.1",
+    "speaker": "OG",
+    "text": "Developing countries would gain power in the international body, incentivizing developed nations to regulate pollution and invest in solutions.",
+    "target_id": "1.3.2"
+  },
+  {
+    "id": "1.3.2.2",
+    "speaker": "CO",
+    "text": "Opposition fails to provide a positive alternative to international control; voluntary regional cooperation is more effective.",
+    "target_id": "1.3.2"
+  },
+  {
+    "id": "1.3.2.3",
+    "speaker": "OO",
+    "text": "Populism and national interests lead representatives to prioritize domestic politics over equitable water distribution.",
+    "target_id": "1.3.2"
+  },
+  {
+    "id": "1.3.3.1",
+    "speaker": "CO",
+    "text": "Centralization reduces expert investment and accountability, increasing complacency and politicization of water management.",
+    "target_id": "1.3.3"
+  },
+  {
+    "id": "1.3.3.2",
+    "speaker": "CG",
+    "text": "Western countries have popular support and strategic incentives to promote stability and development, making them good actors.",
+    "target_id": "1.3.3"
+  },
+  {
+    "id": "1.3.3.3",
+    "speaker": "OG",
+    "text": "Hegemonies balance each other out in international law; powerful countries have incentives to be reasonable to avoid conflict and sanctions.",
+    "target_id": "1.3.3"
+  },
+  {
+    "id": "1.1.1.1.2",
+    "speaker": "CG",
+    "text": "The debate is most relevant in Africa, where water scarcity is about distribution, political tension, lack of infrastructure, and sovereignty concerns.",
+    "target_id": "1.1.1.1"
+  },
+  {
+    "id": "1.1.1.3.1",
+    "speaker": "OG",
+    "text": "Water is a basic human right and over a billion people lack reliable access to safe drinking water.",
+    "target_id": "1.1.1.3"
+  },
+  {
+    "id": "1.1.1.3.2",
+    "speaker": "CO",
+    "text": "In the real world, countries go to war over water due to its political sensitivity, especially in developing regions reliant on agriculture.",
+    "target_id": "1.1.1.3"
+  }
+]
