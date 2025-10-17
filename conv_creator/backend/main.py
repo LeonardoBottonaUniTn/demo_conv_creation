@@ -1,14 +1,23 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
+import sys
 import json
 import sqlite3
 import shutil
 from typing import List
 import logging
 from datetime import datetime
+
+# Add backend directory to Python path so we can import scripts module
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+# Now we can import from scripts
+from scripts.llm_calls import transform_discussion_json
 
 app = FastAPI()
 
@@ -258,15 +267,24 @@ def list_files(folder: str | None = None) -> List[dict]:
     If folder is provided it filters results to that subfolder (relative to files_root).
     If DB is empty it will scan FILES_ROOT (or the provided folder) to populate the DB.
     """
+    import os
+    from datetime import datetime
     rows = _list_files_db()
+    def fill_defaults(file_row):
+        # Always set type to 'json' if missing or None
+        if not file_row.get('type'):
+            file_row['type'] = 'json'
+        # If uploadDate is missing or None, use file creation time
+        if not file_row.get('uploadDate'):
+            file_path = file_row.get('path')
+            if file_path and os.path.exists(file_path):
+                ts = os.path.getctime(file_path)
+                file_row['uploadDate'] = datetime.fromtimestamp(ts).isoformat()
+            else:
+                file_row['uploadDate'] = datetime.now().isoformat()
+        return file_row
     if rows:
         if folder:
-            # normalize stored path and compare prefix carefully.
-            # Require the folder prefix to represent a directory boundary so that
-            # filenames that merely start with the folder name (e.g. 'bp_130_0.json')
-            # are not considered inside 'bp_130'. We accept files whose stored path
-            # equals the folder prefix (if it's a file representing the folder) or
-            # starts with folder_prefix + os.sep.
             folder_prefix = os.path.normpath(os.path.join('files_root', folder))
             def in_folder(relpath: str) -> bool:
                 rp = os.path.normpath(relpath)
@@ -274,21 +292,19 @@ def list_files(folder: str | None = None) -> List[dict]:
                     return True
                 return rp.startswith(folder_prefix + os.sep)
 
-            filtered = [r for r in rows if in_folder(r['path'])]
+            filtered = [fill_defaults(r) for r in rows if in_folder(r['path'])]
             return filtered
 
-        # No folder provided: return only top-level files (those directly under files_root).
         top_level = []
         for r in rows:
             rp = os.path.normpath(r.get('path', ''))
-            # strip leading files_root/ if present
             prefix = os.path.normpath('files_root') + os.sep
             if rp.startswith(prefix):
                 rel = rp[len(prefix):]
             else:
                 rel = rp
             if rel and os.sep not in rel:
-                top_level.append(r)
+                top_level.append(fill_defaults(r))
         return top_level
 
     # fallback: walk FILES_ROOT and populate DB (respect folder if provided)
@@ -633,3 +649,207 @@ def get_users():
         raise HTTPException(status_code=404, detail="Users file not found")
     with open(path, 'r', encoding='utf-8') as f:
         return JSONResponse(content=json.load(f))
+
+
+@app.get("/api/llm/health")
+def llm_health_check():
+    """Check if LLM module can be loaded"""
+    try:
+        # Test that we can call the function
+        test_result = transform_discussion_json([{"id": 1, "text": "test"}])
+        return {"status": "ok", "message": "LLM module loaded and callable"}
+    except Exception as e:
+        import traceback
+        logging.error(f"LLM health check failed: {e}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(e), "traceback": traceback.format_exc()}
+
+
+@app.post("/api/files/fix/{file_id}/preview")
+async def preview_file_fix(file_id: int):
+    """
+    Preview the LLM-suggested fix without applying it.
+    Returns both the original and fixed data for user review.
+    """
+    # Get file info from database
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
+    
+    name, rel_path = row
+    
+    # Normalize path
+    if rel_path.startswith('files_root/'):
+        rel_path = rel_path[len('files_root/'):]
+    
+    full_path = os.path.join(FILES_ROOT, rel_path)
+    
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"File not found at path: {rel_path}")
+    
+    # Read the current file
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            input_data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"File is not valid JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+    
+    # Transform using LLM
+    try:
+        fixed_data = transform_discussion_json(input_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM transformation failed: {str(e)}")
+    
+    # Return both versions for comparison
+    return {
+        "success": True,
+        "file_id": file_id,
+        "file_name": name,
+        "original": input_data,
+        "fixed": fixed_data,
+        "changes_count": len(fixed_data) if isinstance(fixed_data, list) else 1
+    }
+
+
+@app.post("/api/files/fix/{file_id}/apply")
+async def apply_file_fix(file_id: int, request: Request):
+    body = await request.json()
+    fixed_data = body.get("fixed_data")
+    overwrite = body.get("overwrite", False)
+    # Defensive: if fixed_data is a string, try to parse it as JSON
+    import json
+    if isinstance(fixed_data, str):
+        try:
+            fixed_data = json.loads(fixed_data)
+        except Exception:
+            pass
+    """
+    Apply the LLM-suggested fix after user confirmation.
+    Creates a backup before overwriting the original file.
+    """
+    # Get file info from database
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
+    row = cur.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
+    
+    name, rel_path = row
+    
+    # Normalize path
+    if rel_path.startswith('files_root/'):
+        rel_path = rel_path[len('files_root/'):]
+    
+    full_path = os.path.join(FILES_ROOT, rel_path)
+    
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"File not found at path: {rel_path}")
+    
+    backup_path = None
+    backup_created = False
+    new_file_id = file_id
+    if overwrite:
+        # Create backup of original file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = full_path + f'.backup_{timestamp}'
+        try:
+            shutil.copy2(full_path, backup_path)
+            backup_created = True
+        except Exception as e:
+            logging.warning(f"Could not create backup: {e}")
+        # Save the fixed file (overwrite)
+        try:
+            with open(full_path, 'w', encoding='utf-8') as f:
+                json.dump(fixed_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            # Restore from backup if save failed
+            if backup_created:
+                shutil.copy2(backup_path, full_path)
+            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
+        # Update the database to mark structure as OK
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("UPDATE files SET structure_ok = 1 WHERE id = ?", (file_id,))
+        conn.commit()
+        conn.close()
+    else:
+        # Save as new file with _fix suffix
+        base, ext = os.path.splitext(name)
+        new_name = f"{base}_fix{ext}"
+        new_rel_path = os.path.join(os.path.dirname(rel_path), new_name) if os.path.dirname(rel_path) else new_name
+        new_full_path = os.path.join(FILES_ROOT, new_rel_path)
+        try:
+            # Only write an empty object if fixed_data is truly empty or None
+            to_write = fixed_data if fixed_data not in (None, "", []) else {}
+            with open(new_full_path, 'w', encoding='utf-8') as f:
+                json.dump(to_write, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
+        # Insert new file into DB
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO files (name, size, uploadDate, type, path, structure_ok) VALUES (?, ?, ?, ?, ?, ?)", (
+            new_name,
+            os.path.getsize(new_full_path),
+            datetime.now().isoformat(),
+            'json',
+            f'files_root/{new_rel_path}',
+            1
+        ))
+        conn.commit()
+        new_file_id = cur.lastrowid
+        conn.close()
+    return {
+        "success": True,
+        "message": "File successfully fixed and saved",
+        "file_id": new_file_id,
+        "backup_path": backup_path,
+        "backup_created": backup_created,
+        "overwrite": overwrite
+    }
+
+
+@app.post("/api/files/delete-backup")
+async def delete_backup_file(request: dict):
+    """
+    Delete a backup file created during the fix process.
+    Only deletes files with .backup_ in their name for safety.
+    """
+    backup_path = request.get("backup_path")
+    
+    if not backup_path:
+        raise HTTPException(status_code=400, detail="backup_path is required")
+    
+    # Security check: ensure it's actually a backup file
+    if ".backup_" not in backup_path:
+        raise HTTPException(status_code=400, detail="Only backup files can be deleted through this endpoint")
+    
+    # Ensure it's within our FILES_ROOT directory
+    abs_backup_path = os.path.abspath(backup_path)
+    abs_files_root = os.path.abspath(FILES_ROOT)
+    
+    if not abs_backup_path.startswith(abs_files_root):
+        raise HTTPException(status_code=403, detail="Cannot delete files outside of files_root")
+    
+    # Delete the backup file
+    try:
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+            logging.info(f"Deleted backup file: {backup_path}")
+            return {"success": True, "message": f"Backup file deleted: {backup_path}"}
+        else:
+            raise HTTPException(status_code=404, detail="Backup file not found")
+    except Exception as e:
+        logging.error(f"Failed to delete backup: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting backup: {str(e)}")
+
+

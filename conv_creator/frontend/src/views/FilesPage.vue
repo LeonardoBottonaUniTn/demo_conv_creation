@@ -349,10 +349,104 @@
             <button class="secondary-button" @click="closeWarning">Close</button>
             <button
               class="primary-button"
-              disabled
-              title="Future action: try to auto-fix or reformat the file"
+              @click="attemptFix"
+              title="Try to auto-fix the file structure using AI"
             >
-              Attempt fix (coming soon)
+              Attempt fix
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fix Preview Modal -->
+    <div v-if="fixPreviewModal.show" class="modal-overlay" @click="closeFixPreview">
+      <div
+        class="modal-content fix-preview-modal"
+        @click.stop
+        style="max-width: 90vw; width: 1200px"
+      >
+        <div class="modal-header">
+          <h3>AI Suggested Fix — {{ fixPreviewModal.file?.name }}</h3>
+          <button class="close-button" @click="closeFixPreview">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div v-if="fixPreviewModal.loading" style="text-align: center; padding: 2rem">
+            <p>Generating fix with AI...</p>
+            <p style="color: #7f8c8d; font-size: 0.9rem; margin-top: 0.5rem">
+              This may take a few seconds
+            </p>
+          </div>
+          <div v-else style="display: flex; gap: 1rem; height: 60vh">
+            <!-- Original -->
+            <div style="flex: 1; display: flex; flex-direction: column">
+              <h4 style="margin: 0 0 0.5rem 0; color: #e74c3c">
+                Original ({{
+                  Array.isArray(fixPreviewModal.original) ? fixPreviewModal.original.length : 0
+                }}
+                items)
+              </h4>
+              <div
+                style="
+                  flex: 1;
+                  overflow: auto;
+                  background: #f8f9fa;
+                  border: 1px solid #ddd;
+                  border-radius: 4px;
+                  padding: 1rem;
+                "
+              >
+                <pre style="margin: 0; font-size: 0.85rem; white-space: pre-wrap">{{
+                  JSON.stringify(fixPreviewModal.original, null, 2)
+                }}</pre>
+              </div>
+            </div>
+            <!-- Fixed -->
+            <div style="flex: 1; display: flex; flex-direction: column">
+              <h4 style="margin: 0 0 0.5rem 0; color: #27ae60">
+                Fixed ({{ Array.isArray(fixPreviewModal.fixed) ? fixPreviewModal.fixed.length : 0 }}
+                items)
+              </h4>
+              <div
+                style="
+                  flex: 1;
+                  overflow: auto;
+                  background: #f8f9fa;
+                  border: 1px solid #ddd;
+                  border-radius: 4px;
+                  padding: 1rem;
+                "
+              >
+                <pre style="margin: 0; font-size: 0.85rem; white-space: pre-wrap">{{
+                  JSON.stringify(fixPreviewModal.fixed, null, 2)
+                }}</pre>
+              </div>
+            </div>
+          </div>
+          <div
+            v-if="!fixPreviewModal.loading"
+            style="
+              display: flex;
+              gap: 0.5rem;
+              justify-content: flex-end;
+              margin-top: 1rem;
+              padding-top: 1rem;
+              border-top: 1px solid #ddd;
+            "
+          >
+            <button class="secondary-button" @click="closeFixPreview">Cancel</button>
+            <button
+              class="primary-button"
+              @click="applyFix"
+              style="background: #27ae60"
+              title="Apply this fix and save the file (a backup will be created)"
+            >
+              Apply Fix
             </button>
           </div>
         </div>
@@ -675,6 +769,106 @@ const closePreview = () => {
 
 const closeWarning = () => {
   warningModal.value.show = false
+}
+
+// Store the preview of the fix
+const fixPreviewModal = ref({
+  show: false,
+  file: null as FileItem | null,
+  original: null as any,
+  fixed: null as any,
+  loading: false,
+})
+
+const attemptFix = async () => {
+  const file = warningModal.value.file
+  if (!file) return
+
+  try {
+    // Show loading state
+    fixPreviewModal.value.loading = true
+    fixPreviewModal.value.file = file
+    fixPreviewModal.value.show = true
+
+    // Request a preview of the fix
+    const response = await fetch(`http://localhost:8000/api/files/fix/${file.id}/preview`, {
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Fix preview failed')
+    }
+
+    const result = await response.json()
+
+    // Store the preview data
+    fixPreviewModal.value.original = result.original
+    fixPreviewModal.value.fixed = result.fixed
+    fixPreviewModal.value.loading = false
+
+    // Close the warning modal
+    closeWarning()
+  } catch (error) {
+    console.error('Fix preview failed:', error)
+    fixPreviewModal.value.show = false
+    fixPreviewModal.value.loading = false
+    alert(`Failed to preview fix:\n\n${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+const applyFix = async () => {
+  const file = fixPreviewModal.value.file
+  const fixedData = fixPreviewModal.value.fixed
+
+  if (!file || !fixedData) return
+
+  // Ask user if they want to keep the original file
+  const keepOriginal = confirm(
+    `Do you want to keep the original file?\n\n` +
+      `OK = Keep original and create a _fix version.\nCancel = Overwrite the original file.`,
+  )
+  // If user cancels the dialog, abort
+  if (keepOriginal === null) return
+  // If user clicks OK, keep original (overwrite: false). If Cancel, overwrite (overwrite: true)
+  const overwrite = !keepOriginal
+
+  try {
+    const response = await fetch(`http://localhost:8000/api/files/fix/${file.id}/apply`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fixed_data: fixedData,
+        overwrite,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || 'Failed to apply fix')
+    }
+
+    const result = await response.json()
+
+    // Close the preview modal
+    fixPreviewModal.value.show = false
+
+    // Refresh the files list to update the structure_ok status
+    await fetchFiles()
+  } catch (error) {
+    console.error('Apply fix failed:', error)
+    alert(`❌ Failed to apply fix:\n\n${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+const closeFixPreview = () => {
+  fixPreviewModal.value.show = false
+  fixPreviewModal.value.file = null
+  fixPreviewModal.value.original = null
+  fixPreviewModal.value.fixed = null
+  fixPreviewModal.value.loading = false
 }
 
 const downloadFile = (file: FileItem) => {

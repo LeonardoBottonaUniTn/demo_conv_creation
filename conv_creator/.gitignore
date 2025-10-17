@@ -1,3 +1,6 @@
+# Ignore all files in backend/files_root except .gitkeep
+backend/files_root/*
+!backend/files_root/.gitkeep
 # Logs
 logs
 *.log
