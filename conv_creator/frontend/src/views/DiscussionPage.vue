@@ -126,7 +126,6 @@ const toggleGraphCollapsed = () => {
           @send-message="handleSendMessage"
           @update-input="handleUpdateInput"
           title="Discussion Chat"
-          status="Online"
           current-user="You"
           input-placeholder="Type a message..."
         />

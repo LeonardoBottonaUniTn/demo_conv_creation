@@ -2,10 +2,23 @@
   <div class="chat-section">
     <div class="chat-header">
       <h3>{{ title }}</h3>
-      <div class="chat-status">
-        <span class="status-indicator"></span>
-        {{ status }}
-      </div>
+      <button class="settings-button" @click="openSettings" title="Settings">
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 11 3.09V3a2 2 0 1 1 4 0v.09c0 .66.39 1.26 1 1.51a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09c.66.39 1.26 1.09 1.51 1.82H21a2 2 0 1 1 0 4h-.09c-.22.63-.82 1.23-1.51 1.51z"
+          />
+        </svg>
+      </button>
     </div>
 
     <div class="chat-messages" ref="messagesContainer">
@@ -29,7 +42,6 @@
     </div>
 
     <div class="chat-input">
-      <!-- ChatInput component for message input and send -->
       <ChatInput
         v-model="newMessage"
         :placeholder="inputPlaceholder"
@@ -40,12 +52,42 @@
         @update:modelValue="handleInputUpdate"
       />
     </div>
+
+    <!-- Settings Modal -->
+    <Modal :isVisible="showSettingsModal" title="Group Description" @close="closeSettings">
+      <div class="settings-modal-body">
+        <h4>Users in this group</h4>
+        <ul class="users-list">
+          <li v-for="user in usersList" :key="user" class="user-item">
+            <span class="user-avatar">{{ user.charAt(0).toUpperCase() }}</span>
+            <span class="user-name">{{ user }}</span>
+          </li>
+        </ul>
+      </div>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted } from 'vue'
+// Settings button handler (placeholder)
+// ...existing code...
+import { ref, nextTick, watch, onMounted, computed } from 'vue'
 import ChatInput from './components/ChatInput.vue'
+import Modal from '../shared/Modal.vue'
+
+const showSettingsModal = ref(false)
+const openSettings = () => {
+  showSettingsModal.value = true
+}
+const closeSettings = () => {
+  showSettingsModal.value = false
+}
+
+// Compute unique users from messages
+const usersList = computed(() => {
+  const users = props.messages.map((m) => m.sender)
+  return Array.from(new Set(users))
+})
 
 interface ChatMessage {
   id: number
@@ -66,7 +108,6 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   title: 'Discussion Chat',
-  status: 'Online',
   currentUser: 'You',
   inputPlaceholder: 'Type a message...',
   inputValue: '',
@@ -155,6 +196,58 @@ defineExpose({
 </script>
 
 <style scoped>
+/* Settings Modal Styles */
+.settings-modal-body {
+  padding: 10px 0;
+}
+.settings-modal-body h4 {
+  margin-bottom: 12px;
+  font-size: 18px;
+  color: #0088cc;
+}
+.users-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.user-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  background: #0088cc;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 18px;
+  margin-right: 12px;
+}
+.user-name {
+  font-size: 16px;
+  color: #333;
+}
+/* Settings button styles */
+.settings-button {
+  background: none;
+  border: none;
+  color: #fff;
+  margin-left: 12px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+}
+.settings-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
 /* Right side - Chat section (1/4 width) */
 .chat-section {
   flex: 1;
@@ -177,20 +270,6 @@ defineExpose({
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-}
-
-.chat-status {
-  display: flex;
-  align-items: center;
-  font-size: 12px;
-}
-
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  background-color: #4caf50;
-  border-radius: 50%;
-  margin-right: 5px;
 }
 
 .chat-messages {
