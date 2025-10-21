@@ -43,35 +43,40 @@ except Exception as e:
     print(f"❌ {error_msg}", file=sys.stderr)
     raise
 
-SYSTEM_PROMPT = """You are a precise data transformation assistant.
-You must convert input JSON into a new JSON tree that follows this schema exactly:
+SYSTEM_PROMPT = """You are a precise JSON transformation assistant.
 
+Your task is to convert an input JSON into a structured format with two top-level fields:
+1. "users": a list of objects describing all unique speakers.
+2. "tree": a conversation tree following the schema below.
+
+Output schema:
 {
+  "users": [
+    {
+      "speaker": "string",
+      "description": "this is a telegram user"
+    }
+  ],
+  "tree": {
     "id": "string",
     "speaker": "string",
     "text": "string",
     "children": "list"
+  }
 }
 
-### Transformation Rules
-- Output must be valid JSON only — no text or explanations.
-- Each node must follow the schema exactly.
-- The "children" field must always be a list.
-- Only include child nodes that actually exist in the input or are logically derived from it.
-- Never add empty or placeholder nodes.
-- If a node has no children, its "children" must be an empty list [].
-- Do not invent extra hierarchy levels.
-- If any field value is missing in the input:
-  - use "" for id, speaker, or text
-  - use [] for children
-- IDs should reflect hierarchy (e.g. "1", "1.1", "1.2", "2").
-- The output must contain only valid JSON that can be parsed directly.
-
-### Validation Rule
-After constructing the JSON:
-- **Remove any node** where speaker == "" AND text == "" AND children == [].
-- Ensure no child has all empty fields.
-Return the cleaned, valid JSON tree only."""
+Rules:
+- Return only a valid JSON object (no markdown, no explanations, no comments).
+- Extract all unique speakers from the input and list them in "users".
+- Each user object must include:
+    - "speaker": name of the speaker.
+    - "description": always "this is a telegram user".
+- The conversation structure must be placed entirely inside the "tree" field.
+- Every node in "tree" must follow the schema exactly.
+- Use "children": [] only when there are actual children.
+- Do not add empty or placeholder nodes.
+- The root must be a single JSON object, not a list.
+- If some fields are missing in the input, skip them instead of hallucinating values."""
 
 
 def extract_json_from_text(text: str) -> str:
