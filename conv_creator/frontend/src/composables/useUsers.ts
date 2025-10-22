@@ -20,9 +20,11 @@ export function useUsers() {
       const res = await fetch(`${API_BASE}/api/users`)
       if (!res.ok) throw new Error('Failed to load users')
       const data = await res.json()
-      personas.value = data.map((user: any) => ({
+      // Expecting { users: [...] }
+      const users = Array.isArray(data.users) ? data.users : data
+      personas.value = users.map((user: any) => ({
         name: user.speaker,
-        description: user.argumentative_style,
+        description: user.description,
         stance: user.stance,
         stance_summary: user.stance_summary,
         subunits: user.subunits,

@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_PATH = Path(__file__).parent.parent / 'backend' / 'bp_130_0_d3.json'
+DEFAULT_PATH = Path(__file__).parent.parent / 'backend' / 'files_root' / 'bp_130_0_d3.json'
 
 
 def load_json(path: Path):
