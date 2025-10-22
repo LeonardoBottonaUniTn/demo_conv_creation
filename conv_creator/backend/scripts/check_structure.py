@@ -109,16 +109,12 @@ def main(argv=None):
     argv = argv or sys.argv[1:]
     files_root = Path(argv[0]) if argv else Path(__file__).parent.parent / 'backend' / 'files_root'
 
-    # use the structural schema instead of reading a canonical file
-    canonical = NODE_SCHEMA
-
+    # Expect top-level keys: 'users' (list) and 'tree' (object)
     results: List[Tuple[Path, List[str]]] = []
 
     for p in sorted(files_root.rglob('*.json')):
-        # skip canonical itself
         if p.name == CANONICAL_NAME:
             continue
-        # skip user files and anything under a User directory
         if any(part.lower() == 'user' for part in p.parts):
             print(f"Skipping user file or folder: {p}")
             continue
@@ -127,7 +123,7 @@ def main(argv=None):
             continue
 
         try:
-            other = load_json(p)
+            data = load_json(p)
         except FileNotFoundError:
             results.append((p, ["File not found"]))
             continue
@@ -135,13 +131,22 @@ def main(argv=None):
             results.append((p, [f"Invalid JSON: {e}"]))
             continue
 
-        # Accept a top-level array of nodes: validate each element as a node
-        if isinstance(other, list):
-            issues = []
-            for i, elem in enumerate(other):
-                issues += compare_structure(canonical, elem, path=['<root>', f'[{i}]'])
+        issues = []
+        # Check top-level keys
+        if not isinstance(data, dict):
+            issues.append("Top-level JSON is not an object")
         else:
-            issues = compare_structure(canonical, other, path=['<root>'])
+            if 'users' not in data:
+                issues.append("Missing top-level 'users' key")
+            elif not isinstance(data['users'], list):
+                issues.append("'users' key is not a list")
+            if 'tree' not in data:
+                issues.append("Missing top-level 'tree' key")
+            elif not isinstance(data['tree'], dict):
+                issues.append("'tree' key is not an object")
+            # Validate tree structure if present
+            if 'tree' in data and isinstance(data['tree'], dict):
+                issues += compare_structure(NODE_SCHEMA, data['tree'], path=['tree'])
 
         results.append((p, issues))
 

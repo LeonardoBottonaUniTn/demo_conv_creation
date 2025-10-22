@@ -24,14 +24,24 @@ export function buildTree(flatNodes, rootId = "0") {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const dataPath = path.join(__dirname, "files_root", "bp_130_0.json");
-  const flatNodes = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
+  const jsonData = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
 
-  const tree = buildTree(flatNodes);
+  // Expecting { users: [...], tree: {...} }
+  const users = jsonData.users;
+  const treeData = jsonData.tree;
 
-  console.log(JSON.stringify(tree, null, 2));
+  // If you need to process users, do it here
+  // For now, just print them
+  console.log("Users:", JSON.stringify(users, null, 2));
+
+  // If you need to convert treeData to d3-hierarchy, you can use it directly
+  // If buildTree is needed for legacy reasons, you can adapt it
+  // For now, just print the tree
+  console.log("Tree:", JSON.stringify(treeData, null, 2));
+
   // Optionally, save to a file:
   fs.writeFileSync(
     path.join(__dirname, "files_root", "bp_130_0_d3.json"),
-    JSON.stringify(tree, null, 2)
+    JSON.stringify(treeData, null, 2)
   );
 }

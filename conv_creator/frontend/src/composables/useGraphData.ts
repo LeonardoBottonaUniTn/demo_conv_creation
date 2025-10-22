@@ -55,7 +55,8 @@ export function useGraphData() {
         : await fetch(`${API_BASE}/api/discussion`)
       if (!res.ok) throw new Error(`Failed to load discussion: ${res.status}`)
       const data = await res.json()
-      discussionRoot.value = data
+      // Expecting { users: [...], tree: {...} }
+      discussionRoot.value = data.tree
       // preserve previous behaviour: collect root-to-leaf branches
       discussionBranches.value = collectBranches(discussionRoot.value)
       loading.value = false
