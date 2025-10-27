@@ -248,19 +248,28 @@ defineExpose({
 .settings-button:hover {
   background: rgba(255, 255, 255, 0.12);
 }
-/* Right side - Chat section (1/4 width) */
 .chat-section {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #0088cc;
-  color: white;
+  background-color: #ffffff; /* card background */
+  color: #222;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+/* Ensure the chat card can shrink properly inside flex containers */
+.chat-section {
+  min-height: 0;
+  height: 100%;
 }
 
 .chat-header {
-  padding: 15px 20px;
-  background-color: #006ba3;
-  border-bottom: 1px solid #005080;
+  padding: 12px 16px;
+  background-color: #006ba3; /* keep the blue header accent */
+  color: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -268,15 +277,15 @@ defineExpose({
 
 .chat-header h3 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .chat-messages {
   flex: 1;
-  padding: 15px;
+  padding: 16px;
   overflow-y: auto;
-  background-color: #0088cc;
+  background-color: #ffffff;
 }
 
 .message {
@@ -289,7 +298,8 @@ defineExpose({
 }
 
 .message.own-message .message-text {
-  background-color: #4caf50;
+  background-color: #e6f4ea; /* softer green bubble for own messages */
+  color: #0b6623;
   margin-left: auto;
 }
 
@@ -321,34 +331,36 @@ defineExpose({
 }
 
 .message-text {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: #f5f7fa; /* neutral bubble for incoming messages */
   padding: 8px 12px;
-  border-radius: 18px;
+  border-radius: 16px;
   display: inline-block;
   max-width: 80%;
   word-wrap: break-word;
   font-size: 14px;
   line-height: 1.4;
+  color: #111;
 }
 
 .chat-input {
-  padding: 15px 5px;
-  background-color: #006ba3;
+  padding: 12px 12px;
+  background-color: #fbfdff; /* subtle light footer */
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: center;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .sender-chip {
   display: flex;
   align-items: center;
-  background: #fff;
+  background: #ffffff;
   color: #0088cc;
   border-radius: 16px;
   padding: 4px 12px;
   margin-right: 8px;
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 .remove-chip {
   background: none;

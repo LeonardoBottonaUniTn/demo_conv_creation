@@ -89,16 +89,7 @@ const toggleGraphCollapsed = () => {
       <router-link to="/" class="back-button"> ← Back to Home </router-link>
       <h1 class="page-title">Discussion Interface</h1>
       <button class="open-file-button" @click="showFileSelector = true">Choose file</button>
-      <!-- Collapse toggle placed in the header for quick access -->
-      <button
-        class="collapse-header-button"
-        @click="toggleGraphCollapsed"
-        :aria-pressed="graphCollapsed"
-        :title="graphCollapsed ? 'Open graph' : 'Collapse graph'"
-      >
-        <span v-if="!graphCollapsed">◀</span>
-        <span v-else>▶</span>
-      </button>
+      <!-- Collapse toggle moved into the graph container -->
       <div class="nav-spacer"></div>
     </div>
 
@@ -106,15 +97,11 @@ const toggleGraphCollapsed = () => {
     <div class="discussion-container">
       <!-- Left side - Graph representation (collapsible) -->
       <div :class="['graph-wrapper', { collapsed: graphCollapsed }]">
-        <button
-          class="collapse-toggle"
-          @click="toggleGraphCollapsed"
-          :aria-pressed="graphCollapsed"
-        >
-          <span v-if="!graphCollapsed">◀</span>
-          <span v-else>▶</span>
-        </button>
-        <DiscussionGraph @add-message="handleAddFromGraph" />
+        <DiscussionGraph
+          @add-message="handleAddFromGraph"
+          :collapsed="graphCollapsed"
+          @toggle-collapse="toggleGraphCollapsed"
+        />
       </div>
 
       <!-- Right side - Telegram chat simulation (1/4 width) -->
@@ -214,7 +201,12 @@ const toggleGraphCollapsed = () => {
 
 .chat-wrapper {
   display: flex;
+  flex-direction: column; /* ensure children stack and flex correctly */
   min-width: 0;
+  min-height: 0; /* allow children (chat card) to shrink inside flex container */
+  padding: 20px 20px 20px 0px;
+  background-color: #f8f9fa; /* same surrounding background as graph-section */
+  box-sizing: border-box;
 }
 
 .chat-wrapper.expanded {
@@ -256,8 +248,8 @@ const toggleGraphCollapsed = () => {
 
 .collapse-toggle {
   position: absolute;
-  left: 0;
-  top: 12px;
+  right: 12px;
+  bottom: 12px;
   z-index: 40;
   width: 36px;
   height: 36px;
@@ -273,7 +265,8 @@ const toggleGraphCollapsed = () => {
 }
 
 .graph-wrapper.collapsed .collapse-toggle {
-  left: 4px;
+  right: 4px;
+  bottom: 4px;
 }
 
 .graph-wrapper .collapse-toggle:focus {
@@ -281,9 +274,9 @@ const toggleGraphCollapsed = () => {
   box-shadow: 0 0 0 3px rgba(100, 150, 250, 0.12);
 }
 
-/* Hide the original in-graph toggle since we have a header button now */
+/* Show the in-graph toggle (positioned bottom-right) */
 .graph-wrapper .collapse-toggle {
-  display: none;
+  display: flex; /* show the in-graph toggle inside the graph box */
 }
 
 .collapse-header-button {

@@ -372,20 +372,22 @@ textarea {
   line-height: 20px;
   padding: 12px 16px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: #f5f7fa; /* light neutral input */
+  color: #111; /* dark text for visibility on light bg */
   max-height: 90px; /* limit growth */
   overflow-y: auto;
   min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 textarea::placeholder {
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(0, 0, 0, 0.35);
 }
 
 textarea:focus {
   outline: none;
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(100, 150, 250, 0.06);
 }
 
 button {
@@ -398,25 +400,28 @@ button {
   justify-content: center;
   padding: 0 8px;
   height: 40px;
-  color: white;
+  color: #006ba3;
 }
 
 .send-btn {
-  background-color: #4caf50;
-  color: white;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
+  background-color: #006ba3;
+  color: #fff;
+  border-radius: 8px;
+  width: 44px;
+  height: 36px;
   margin-left: 8px;
-  transition: background-color 0.2s;
+  transition: background-color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .send-btn:hover {
-  background-color: #45a049;
+  background-color: #005380;
 }
 
 .send-btn:disabled {
-  background-color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(0, 107, 163, 0.2);
   cursor: not-allowed;
 }
 

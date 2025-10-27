@@ -1,5 +1,16 @@
 <template>
   <div class="graph-section">
+    <!-- Collapse toggle inside the graph card -->
+    <button
+      class="collapse-toggle"
+      @click="toggleLocal"
+      :aria-pressed="propsCollapsed"
+      title="Collapse / Expand graph"
+    >
+      <span v-if="!propsCollapsed">◀</span>
+      <span v-else>▶</span>
+    </button>
+
     <!-- Header removed to free vertical space (title and branch controls not needed) -->
 
     <div class="graph-container" ref="graphContainer">
@@ -54,11 +65,21 @@ interface Props {
 
 interface Emits {
   addMessage: [message: ChatMessage]
+  'toggle-collapse': []
 }
 
-const props = withDefaults(defineProps<Props>(), {
+// accept collapsed prop from parent so the button can reflect state
+interface ExtendedProps extends Props {
+  collapsed?: boolean
+}
+
+const props = withDefaults(defineProps<ExtendedProps>(), {
   title: 'Climate Change Discussion',
+  collapsed: false,
 })
+
+// local alias to use inside template expression (scoped template refs don't allow direct props access in <script setup> expressions in older setups)
+const propsCollapsed = computed(() => props.collapsed)
 
 const route = useRoute()
 const displayedTitle = computed(() => {
@@ -67,6 +88,10 @@ const displayedTitle = computed(() => {
 })
 
 const emit = defineEmits<Emits>()
+
+const toggleLocal = () => {
+  emit('toggle-collapse')
+}
 
 // Graph container ref
 const graphContainer = ref<HTMLElement>()
@@ -153,7 +178,6 @@ watch(
   flex: 1;
   padding: 20px;
   background-color: #f8f9fa;
-  border-right: 2px solid #e9ecef;
   overflow: hidden;
   position: relative;
   min-width: 0;
@@ -217,6 +241,55 @@ watch(
   .graph-header h2 {
     font-size: 20px;
   }
+}
+
+/* Collapse toggle inside graph card */
+.collapse-toggle {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+  opacity: 0.7;
+}
+
+/* Slight lift on hover/focus - appear more visible when interacting */
+.collapse-toggle:hover,
+.collapse-toggle:focus {
+  transform: translateY(-3px);
+  opacity: 1;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* Make the control subtle until the user hovers the graph card */
+.graph-section .collapse-toggle {
+  opacity: 0.5;
+}
+.graph-section:hover .collapse-toggle {
+  opacity: 1;
+}
+
+.collapse-toggle svg {
+  display: block;
+}
+
+/* Rotate the chevron when collapsed */
+.collapse-toggle[data-collapsed='true'] {
+  transform: rotate(180deg);
 }
 
 @media (max-width: 768px) {
