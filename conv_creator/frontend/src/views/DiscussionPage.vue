@@ -184,6 +184,7 @@ const toggleGraphCollapsed = () => {
   display: flex;
   flex: 1;
   min-height: 0; /* Allow flex children to shrink */
+  background-color: #f8f9fa; /* unified page background */
 }
 
 /* Give the graph section flexible width */
@@ -230,21 +231,31 @@ const toggleGraphCollapsed = () => {
     width 220ms ease,
     margin 220ms ease;
   overflow: hidden;
+  background-color: #f8f9fa; /* unified page background */
 }
 
 .graph-wrapper.collapsed {
-  width: 0;
-  min-width: 0;
-  margin-right: 0;
-  flex: 0 0 0; /* collapse to zero space */
+  /* shrink wrapper to a narrow strip but render a visible vertical box via a pseudo-element
+     so the user sees a clear affordance to expand. Keep component mounted. */
+  width: 64px; /* a bit wider so the visual box can have a right margin */
+  min-width: 64px;
+  margin-right: 40px;
+  flex: 0 0 64px; /* collapse to narrow strip */
   padding: 0;
+  overflow: visible; /* allow the pseudo-element shadow to show */
+  background-color: #f8f9fa; /* unified page background */
+  height: auto; /* Let it maintain the same height as when expanded */
 }
 
-/* Hide the graph content when collapsed but keep the toggle visible */
-.graph-wrapper.collapsed > * {
-  /* keep component mounted but hidden */
-  display: none;
+/* Reduce inner padding of the graph-section when the wrapper is collapsed so
+   elements positioned relative to it (toggle) stay inside the narrow strip. */
+.graph-wrapper.collapsed .graph-section {
+  padding: 6px !important;
 }
+
+/* draw a vertical rounded box inside the collapsed wrapper to match the reference
+   (white box with subtle shadow containing the toggle). We use a pseudo-element so
+   the DOM structure remains unchanged. */
 
 .collapse-toggle {
   position: absolute;
@@ -267,6 +278,7 @@ const toggleGraphCollapsed = () => {
 .graph-wrapper.collapsed .collapse-toggle {
   right: 4px;
   bottom: 4px;
+  padding: 10px;
 }
 
 .graph-wrapper .collapse-toggle:focus {
