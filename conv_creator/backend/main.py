@@ -7,7 +7,7 @@ import sys
 import json
 import sqlite3
 import shutil
-from typing import List
+from typing import List, Optional, Dict, Any
 import logging
 from datetime import datetime
 
@@ -114,7 +114,7 @@ def _upsert_file_record(path: str) -> dict:
     relpath = os.path.relpath(path, BACKEND_DIR)
 
     # compute structure_ok for JSON files: 1 = ok, 0 = invalid, NULL = skipped (e.g., user files)
-    def _check_structure_file(full_path: str) -> int | None:
+    def _check_structure_file(full_path: str) -> Optional[int]:
         # skip if not JSON
         if not full_path.lower().endswith('.json'):
             return None
@@ -285,7 +285,7 @@ def _atomic_write_json(full_path: str, data: any, ensure_ascii: bool = False) ->
 
 
 @app.get("/api/files")
-def list_files(folder: str | None = None) -> List[dict]:
+def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
     """List available files from the SQLite metadata table.
 
     If folder is provided it filters results to that subfolder (relative to files_root).
@@ -545,7 +545,7 @@ def delete_file_by_id(file_id: int):
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), path: str | None = Form(None)):
+async def upload_file(file: UploadFile = File(...), path: Optional[str] = Form(None)):
     """Upload a file into the backend directory. Overwrites if name exists."""
     # For uploads we only accept a single filename (no nested paths within file.filename)
     if os.path.basename(file.filename) != file.filename:
@@ -774,7 +774,7 @@ def get_discussion():
 
 
 @app.get("/api/users")
-def get_users(discussion_file: str | None = None):
+def get_users(discussion_file: Optional[str] = None):
     """Return the users metadata.
 
     Priority order:

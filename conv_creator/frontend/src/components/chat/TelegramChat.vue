@@ -224,22 +224,18 @@ const updateDescription = (name: string) => {
 
 //TODO: integrate with real backend LLM call if desired
 // Per-user generation (magic) state and handler
-const generatingUsers = reactive<Record<string, boolean>>({})
 
 const handleMagic = async (name: string) => {
   // simple simulated autofill: prefer backend persona description, otherwise a generated string
-
+  //get context about user to send to LLM
+  userContext = [
+    name,
+    descriptions[name],
+    props.messages.filter((m) => m.sender === name).map((m) => m.text),
+  ]
   try {
-    // simulate async work (e.g. calling an LLM). Replace with real API call if desired.
-    await new Promise((res) => setTimeout(res, 500))
-    const ap = availablePersonas.value && availablePersonas.value.find((p) => p.name === name)
-    const generated = ap?.description || `Auto-generated description for ${name}`
-    descriptions[name] = generated
-    updateDescription(name)
   } catch (e) {
-    console.error('Magic generation failed for', name, e)
   } finally {
-    generatingUsers[name] = false
   }
 }
 
