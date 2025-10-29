@@ -227,73 +227,17 @@ const updateDescription = (name: string) => {
 const generatingUsers = reactive<Record<string, boolean>>({})
 
 const handleMagic = async (name: string) => {
-  // Real LLM-backed autofill: if the user has >=4 chat messages, send those as context;
-  // otherwise fetch the discussion file and extract all tree nodes authored by the user.
-  generatingUsers[name] = true
+  // simple simulated autofill: prefer backend persona description, otherwise a generated string
+
   try {
-    const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
-
-    // Gather messages from the chat view
-    const userMsgs = props.messages.filter((m) => m.sender === name).map((m) => ({ text: m.text, time: (m as any).time }))
-
-    const payload: any = { name }
-
-    if (userMsgs.length >= 4) {
-      // pass the user's most recent messages (up to last 4)
-      payload.messages = userMsgs.slice(-4)
-    } else {
-      // need tree nodes: fetch discussion file and extract nodes authored by this user
-      const target = (route?.query?.file as string)
-      if (!target) {
-        // Do not fallback to a bundled reference file — require an explicit discussion file
-        throw new Error('No discussion file specified in route query; cannot fetch nodes.')
-      }
-      const fileRes = await fetch(`${apiBase}/api/files/${target}`)
-      if (!fileRes.ok) {
-        const text = await fileRes.text()
-        throw new Error(text || `Failed to fetch discussion file: ${fileRes.status}`)
-      }
-      const fileData = await fileRes.json()
-
-      // traverse tree and collect nodes where speaker === name
-      const nodes: Array<Record<string, any>> = []
-      const walk = (node: any) => {
-        if (!node) return
-        if (node.speaker === name) nodes.push({ id: node.id, text: node.text })
-        if (Array.isArray(node.children)) node.children.forEach(walk)
-      }
-
-      // Support different file shapes: top-level 'tree' or direct root node
-      if (fileData && fileData.tree) {
-        walk(fileData.tree)
-      } else if (Array.isArray(fileData)) {
-        fileData.forEach(walk)
-      } else if (typeof fileData === 'object') {
-        // try to locate a likely root
-        if (fileData.root) walk(fileData.root)
-        else if (fileData.id && fileData.speaker) walk(fileData)
-      }
-
-      payload.nodes = nodes
-    }
-
-    // Call backend LLM endpoint to generate a description
-    const genRes = await fetch(`${apiBase}/api/llm/generate_description`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!genRes.ok) {
-      const text = await genRes.text()
-      throw new Error(text || `LLM generate failed: ${genRes.status}`)
-    }
-    const data = await genRes.json()
-    const generated = data.description || `Auto-generated description for ${name}`
+    // simulate async work (e.g. calling an LLM). Replace with real API call if desired.
+    await new Promise((res) => setTimeout(res, 500))
+    const ap = availablePersonas.value && availablePersonas.value.find((p) => p.name === name)
+    const generated = ap?.description || `Auto-generated description for ${name}`
     descriptions[name] = generated
     updateDescription(name)
   } catch (e) {
     console.error('Magic generation failed for', name, e)
-    // fallback: keep UI reactive, optionally set a user-visible error later
   } finally {
     generatingUsers[name] = false
   }

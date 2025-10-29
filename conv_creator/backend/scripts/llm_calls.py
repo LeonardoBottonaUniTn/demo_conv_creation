@@ -252,26 +252,3 @@ If you produce an empty node or any content after the valid JSON tree, delete it
             raise Exception("Network error. Please check your internet connection.")
         else:
             raise Exception(f"LLM API error: {error_msg}")
-
-
-if __name__ == "__main__":
-    # Test example
-    test_data = [
-        {
-            "id": "1",
-            "speaker": "OG",
-            "text": "Water is a basic human right and over a billion people lack reliable access to safe drinking water.",
-            "target_id": "0"
-        },
-        {
-            "id": "1.1",
-            "speaker": "OO",
-            "text": "Not all water sources cross borders; many are contained within one country making sovereignty over water legitimate.",
-            "target_id": "1"
-        }
-    ]
-    
-    print("Testing LLM transformation...")
-    result = transform_discussion_json(test_data)
-    print("\nResult:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
