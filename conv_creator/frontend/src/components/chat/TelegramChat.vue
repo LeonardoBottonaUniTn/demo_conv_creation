@@ -61,9 +61,64 @@
           <li v-for="user in usersList" :key="user" class="user-item">
             <span class="user-avatar">{{ user.charAt(0).toUpperCase() }}</span>
             <span class="user-name">{{ user }}</span>
+            <div class="user-input-row">
+              <textarea
+                class="user-description-input"
+                v-model="descriptions[user]"
+                :placeholder="`${user}'s description`"
+                @input="updateDescription(user)"
+                rows="2"
+              ></textarea>
+              <button
+                class="magic-btn"
+                @click="handleMagic(user)"
+                :disabled="generatingUsers[user]"
+                :title="`Magic fill for ${user}`"
+                aria-label="Magic autofill description"
+              >
+                <template v-if="!generatingUsers[user]">
+                  <!-- Inline magic-wand SVG to avoid external dependency -->
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M22 2l-6 6" />
+                    <path d="M16 8l-10 10" />
+                    <path d="M7 7l-1.5 1.5" />
+                    <path d="M3 13l1.5 1.5" />
+                    <circle cx="19" cy="5" r="1" />
+                  </svg>
+                </template>
+                <template v-else>
+                  <span class="magic-loading">…</span>
+                </template>
+              </button>
+            </div>
           </li>
         </ul>
       </div>
+
+      <!-- Put Save into the modal footer (bottom-right). Close button removed from footer on request. -->
+      <template #footer>
+        <div class="settings-footer">
+          <button
+            class="save-btn"
+            :disabled="!isDirtyAny"
+            :aria-disabled="!isDirtyAny"
+            @click="handleSave"
+            :title="isDirtyAny ? 'Save changes' : 'No changes to save'"
+          >
+            Save
+          </button>
+
+          <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
+        </div>
+      </template>
     </Modal>
   </div>
 </template>
@@ -71,9 +126,12 @@
 <script setup lang="ts">
 // Settings button handler (placeholder)
 // ...existing code...
-import { ref, nextTick, watch, onMounted, computed } from 'vue'
+import { ref, nextTick, watch, onMounted, computed, reactive, onBeforeUnmount } from 'vue'
+import { useRoute } from 'vue-router'
+//import { BiMagic } from 'oh-vue-icons/icons'
 import ChatInput from './components/ChatInput.vue'
 import Modal from '../shared/Modal.vue'
+import { useUsers } from '../../composables/useUsers'
 
 const showSettingsModal = ref(false)
 const openSettings = () => {
@@ -83,17 +141,249 @@ const closeSettings = () => {
   showSettingsModal.value = false
 }
 
-// Compute unique users from messages
+// Load personas from backend so settings modal can show them
+const { loadUsers, personas, availablePersonas, currentPersona } = useUsers()
+
+// get current route (safe single call). Some environments may not provide a router;
+// in that case `route` will be null and we guard access with optional chaining.
+let route: any = null
+try {
+  route = useRoute()
+} catch (e) {
+  // If useRoute() fails (no router present), leave route as null
+  route = null
+}
+
+// Compute users list: prefer backend personas (availablePersonas or personas), otherwise derive from messages
 const usersList = computed(() => {
+  if (availablePersonas.value && availablePersonas.value.length > 0) {
+    return availablePersonas.value.map((p) => p.name)
+  }
+  if (personas.value && personas.value.length > 0) {
+    return personas.value.map((p) => p.name)
+  }
   const users = props.messages.map((m) => m.sender)
   return Array.from(new Set(users))
+})
+
+// Reactive map of user descriptions. We prefer descriptions from backend personas when available,
+// otherwise start with empty strings so inputs are editable.
+const descriptions = reactive<Record<string, string>>({})
+
+// Keep a snapshot of the original descriptions so we can detect changes (dirty state)
+const originalDescriptions = reactive<Record<string, string>>({})
+const saveMessage = ref('')
+
+// Computed flag: true if any description differs from the original snapshot
+const isDirtyAny = computed(() => {
+  const keys = Object.keys(descriptions)
+  for (const k of keys) {
+    if ((descriptions[k] || '') !== (originalDescriptions[k] || '')) return true
+  }
+  return false
+})
+
+const populateDescriptions = () => {
+  // Use availablePersonas first
+  if (availablePersonas.value && availablePersonas.value.length > 0) {
+    availablePersonas.value.forEach((p) => {
+      descriptions[p.name] = p.description || ''
+      // initialize original snapshot
+      originalDescriptions[p.name] = descriptions[p.name]
+    })
+    return
+  }
+  if (personas.value && personas.value.length > 0) {
+    personas.value.forEach((p) => {
+      descriptions[p.name] = p.description || ''
+      // initialize original snapshot
+      originalDescriptions[p.name] = descriptions[p.name]
+    })
+    return
+  }
+  // Fallback: derive from messages
+  const users = Array.from(new Set(props.messages.map((m) => m.sender)))
+  users.forEach((u) => {
+    if (!(u in descriptions)) descriptions[u] = ''
+    if (!(u in originalDescriptions)) originalDescriptions[u] = ''
+  })
+}
+
+// Update underlying persona entries when a description changes (if they exist)
+const updateDescription = (name: string) => {
+  const value = descriptions[name] || ''
+  const ap = availablePersonas.value && availablePersonas.value.find((p) => p.name === name)
+  if (ap) {
+    ap.description = value
+  }
+  const ps = personas.value && personas.value.find((p) => p.name === name)
+  if (ps) {
+    ps.description = value
+  }
+}
+
+//TODO: integrate with real backend LLM call if desired
+// Per-user generation (magic) state and handler
+const generatingUsers = reactive<Record<string, boolean>>({})
+
+const handleMagic = async (name: string) => {
+  // Real LLM-backed autofill: if the user has >=4 chat messages, send those as context;
+  // otherwise fetch the discussion file and extract all tree nodes authored by the user.
+  generatingUsers[name] = true
+  try {
+    const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+
+    // Gather messages from the chat view
+    const userMsgs = props.messages.filter((m) => m.sender === name).map((m) => ({ text: m.text, time: (m as any).time }))
+
+    const payload: any = { name }
+
+    if (userMsgs.length >= 4) {
+      // pass the user's most recent messages (up to last 4)
+      payload.messages = userMsgs.slice(-4)
+    } else {
+      // need tree nodes: fetch discussion file and extract nodes authored by this user
+      const target = (route?.query?.file as string)
+      if (!target) {
+        // Do not fallback to a bundled reference file — require an explicit discussion file
+        throw new Error('No discussion file specified in route query; cannot fetch nodes.')
+      }
+      const fileRes = await fetch(`${apiBase}/api/files/${target}`)
+      if (!fileRes.ok) {
+        const text = await fileRes.text()
+        throw new Error(text || `Failed to fetch discussion file: ${fileRes.status}`)
+      }
+      const fileData = await fileRes.json()
+
+      // traverse tree and collect nodes where speaker === name
+      const nodes: Array<Record<string, any>> = []
+      const walk = (node: any) => {
+        if (!node) return
+        if (node.speaker === name) nodes.push({ id: node.id, text: node.text })
+        if (Array.isArray(node.children)) node.children.forEach(walk)
+      }
+
+      // Support different file shapes: top-level 'tree' or direct root node
+      if (fileData && fileData.tree) {
+        walk(fileData.tree)
+      } else if (Array.isArray(fileData)) {
+        fileData.forEach(walk)
+      } else if (typeof fileData === 'object') {
+        // try to locate a likely root
+        if (fileData.root) walk(fileData.root)
+        else if (fileData.id && fileData.speaker) walk(fileData)
+      }
+
+      payload.nodes = nodes
+    }
+
+    // Call backend LLM endpoint to generate a description
+    const genRes = await fetch(`${apiBase}/api/llm/generate_description`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!genRes.ok) {
+      const text = await genRes.text()
+      throw new Error(text || `LLM generate failed: ${genRes.status}`)
+    }
+    const data = await genRes.json()
+    const generated = data.description || `Auto-generated description for ${name}`
+    descriptions[name] = generated
+    updateDescription(name)
+  } catch (e) {
+    console.error('Magic generation failed for', name, e)
+    // fallback: keep UI reactive, optionally set a user-visible error later
+  } finally {
+    generatingUsers[name] = false
+  }
+}
+
+// Save handler: persist changes to backend `/api/users` and provide feedback.
+const handleSave = async () => {
+  // prepare payload: use availablePersonas if present (they track ids), otherwise use personas
+  const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+  const usersToSend = (
+    availablePersonas.value && availablePersonas.value.length > 0
+      ? availablePersonas.value
+      : personas.value
+  ).map((p: any) => {
+    // backend expects a 'speaker' field historically; include description too
+    return {
+      speaker: p.name || p.speaker,
+      description: p.description || descriptions[p.name || p.speaker] || '',
+    }
+  })
+
+  saveMessage.value = 'Saving...'
+  try {
+    // include target when available (current discussion file from route query)
+    const target = (route?.query?.file as string) || undefined
+    const payload: any = { users: usersToSend }
+    if (target) payload.target = target
+
+    const res = await fetch(`${apiBase}/api/files/${target}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `HTTP ${res.status}`)
+    }
+    // success: update original snapshot and show confirmation
+    Object.keys(descriptions).forEach((k) => {
+      originalDescriptions[k] = descriptions[k] || ''
+    })
+    saveMessage.value = 'Saved'
+    setTimeout(() => (saveMessage.value = ''), 1600)
+    // close modal after saving
+    closeSettings()
+  } catch (err: any) {
+    console.error('Failed to save users:', err)
+    saveMessage.value = `Save failed: ${err?.message || String(err)}`
+    // clear message after a little while but keep modal open so user can retry
+    setTimeout(() => (saveMessage.value = ''), 5000)
+  }
+}
+
+// Keyboard shortcut and navigation protection when settings modal is open
+const onKeyDown = (e: KeyboardEvent) => {
+  const key = e.key ? e.key.toLowerCase() : ''
+  if ((e.ctrlKey || e.metaKey) && key === 's') {
+    e.preventDefault()
+    if (isDirtyAny.value) handleSave()
+  }
+}
+
+const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+  if (isDirtyAny.value) {
+    e.preventDefault()
+    e.returnValue = ''
+    return ''
+  }
+}
+
+// Attach/detach listeners whenever the modal opens/closes
+watch(showSettingsModal, (open) => {
+  if (open) {
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('beforeunload', beforeUnloadHandler)
+  } else {
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('beforeunload', beforeUnloadHandler)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('beforeunload', beforeUnloadHandler)
 })
 
 interface ChatMessage {
   id: number
   sender: string
   text: string
-  time: string
   addressees?: string[]
 }
 
@@ -135,6 +425,17 @@ watch(
 // Initialize with prop value
 onMounted(() => {
   newMessage.value = props.inputValue || ''
+  // Populate personas from backend (will use discussion file users via /api/users)
+  loadUsers()
+    .then(() => {
+      populateDescriptions()
+    })
+    .catch((e) => console.warn('Failed to load personas for settings modal:', e))
+})
+
+// Keep descriptions in sync if availablePersonas or personas change
+watch([availablePersonas, personas], () => {
+  populateDescriptions()
 })
 
 const sendMessage = () => {
@@ -216,21 +517,136 @@ defineExpose({
   margin-bottom: 10px;
 }
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  /* Force a fixed square box so border-radius:50% reliably makes a circle
+     even if parent layout changes or padding/box-sizing differ. */
+
+  min-width: 32px;
+  min-height: 32px;
+  max-width: 32px;
+  max-height: 32px;
+  flex: 0 0 32px; /* prevent flex item from growing/shrinking */
   background: #0088cc;
   color: #fff;
   border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
   font-size: 18px;
   margin-right: 12px;
+  overflow: hidden; /* clip any children/content that might overflow */
+  box-sizing: border-box;
 }
 .user-name {
   font-size: 16px;
   color: #333;
+}
+/* spacing: ensure there's comfortable gap between name and the input row */
+.user-name {
+  margin-right: 12px;
+}
+
+.user-description-input {
+  font-size: 14px;
+  color: #333;
+  border: 1px solid #e6eef4;
+  background: #fff;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-left: 12px;
+  min-width: 180px;
+  width: 100%;
+  min-height: 40px; /* allow multiple lines */
+  line-height: 1.3;
+  resize: vertical; /* let users expand if they want */
+  max-height: 220px;
+  overflow: auto;
+}
+
+.user-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center; /* center button vertically relative to textarea */
+  width: 100%;
+}
+
+.user-input-row .user-description-input {
+  /* remove the left margin inside the input row; spacing is handled by gap */
+  margin-left: 0;
+}
+
+.magic-btn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  background: #ffb74d;
+  color: #fff;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.magic-btn[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.magic-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.magic-loading {
+  font-size: 18px;
+  line-height: 1;
+}
+.user-description-input:focus {
+  outline: none;
+  border-color: #0088cc;
+  box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.08);
+}
+.debug-json {
+  background: #f7f9fb;
+  border: 1px solid #e6eef4;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #223;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+/* Footer inside settings modal */
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.save-btn {
+  background-color: #006ba3;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.save-btn[disabled],
+.save-btn[aria-disabled='true'] {
+  background-color: #c9dbe6;
+  cursor: not-allowed;
+  color: #fff;
+}
+.save-message {
+  color: #2b8a3e;
+  font-weight: 600;
+  margin-left: 8px;
 }
 /* Settings button styles */
 .settings-button {

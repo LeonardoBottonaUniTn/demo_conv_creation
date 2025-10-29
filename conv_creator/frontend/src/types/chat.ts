@@ -8,25 +8,7 @@ export interface ChatMessage {
   timestamp: Date
 }
 
-export interface ChatUser {
-  id: number
-  name: string
-  isOnline: boolean
-  lastSeen?: Date
-  description?: string
-  stance?: 'positive' | 'negative'
-}
-
-export interface UserPersona {
+export interface User {
   name: string
   description: string
-  stance: 'positive' | 'negative'
-}
-
-export interface RawUserData {
-  speaker: string
-  argumentative_style: string
-  stance_summary: string
-  stance: string
-  subunits: string[]
 }

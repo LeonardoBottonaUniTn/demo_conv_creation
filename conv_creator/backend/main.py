@@ -260,6 +260,30 @@ def _file_metadata(path: str) -> dict:
     }
 
 
+def _atomic_write_json(full_path: str, data: any, ensure_ascii: bool = False) -> None:
+    """Write JSON to disk atomically (write to temp file then replace).
+
+    Raises the original exception on failure. Caller may wrap in HTTPException.
+    """
+    tmp = full_path + '.tmp'
+    try:
+        # ensure parent dir exists
+        parent = os.path.dirname(full_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=ensure_ascii)
+        os.replace(tmp, full_path)
+    except Exception:
+        # best-effort cleanup of tmp file
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        raise
+
+
 @app.get("/api/files")
 def list_files(folder: str | None = None) -> List[dict]:
     """List available files from the SQLite metadata table.
@@ -387,6 +411,114 @@ def get_file(filename: str):
     else:
         # For other files, return raw file for download
         return FileResponse(full, media_type='application/octet-stream', filename=filename)
+    
+
+@app.patch('/api/files/id/{file_id}')
+async def save_changes_file_by_id(file_id: int, request: Request):
+    """Save changes to a JSON file identified by numeric id."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail='File not found')
+    name = row[0]
+    relpath = row[1]
+    # Resolve stored path robustly (support legacy entries)
+    full = _resolve_stored_relpath(relpath)
+    # Ensure resolved path is inside FILES_ROOT (protect against legacy/absolute paths)
+    files_root_norm = os.path.normpath(FILES_ROOT)
+    if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
+        raise HTTPException(status_code=400, detail='Invalid file path stored in DB')
+    if not os.path.exists(full):
+        raise HTTPException(status_code=404, detail='File not found')
+    # Reject directories — we must operate on files only
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=400, detail='Target is not a file')
+    ext = os.path.splitext(full)[1].lower()
+    if ext != '.json':
+        raise HTTPException(status_code=400, detail='Only JSON files can be modified via this endpoint')
+    try:
+        data = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
+    try:
+        _atomic_write_json(full, data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
+    # update DB record (e.g., uploadDate)
+    rec = _upsert_file_record(full)
+    return {"message": "Saved", "file": rec}
+
+
+@app.patch('/api/files/{filename:path}')
+async def save_changes_file_by_name(filename: str, request: Request):
+    """Save changes to a JSON file identified by filename (relative to files_root).
+
+    Behaviour:
+    - The filename is resolved safely inside `FILES_ROOT` using `_safe_path` (prevents traversal).
+    - If the target exists and is a JSON object, the endpoint will replace its top-level
+      'users' key when a 'users' array is provided in the request body. If no 'users' key
+      is present in the body, the entire body may be written (use with care).
+    - If the target does not exist, the endpoint will create a new JSON file of the form
+      {"users": [...]} when the caller provides a 'users' array.
+    - Only JSON files are allowed for modification via this endpoint.
+    """
+    try:
+        full = _safe_path(filename)
+    except HTTPException:
+        raise
+
+    # Ensure we operate on a file (not a directory)
+    if os.path.isdir(full):
+        raise HTTPException(status_code=400, detail='Target is a directory')
+
+    ext = os.path.splitext(full)[1].lower()
+    if ext != '.json':
+        raise HTTPException(status_code=400, detail='Only JSON files can be modified via this endpoint')
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
+
+    users = body.get('users') if isinstance(body, dict) else None
+
+    # Determine what to write
+    if os.path.exists(full):
+        # If file exists, try to parse it and merge/replace 'users'
+        try:
+            with open(full, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception:
+            # avoid clobbering non-JSON content
+            raise HTTPException(status_code=400, detail='Target exists but is not valid JSON')
+        if isinstance(data, dict):
+            if users is not None:
+                data['users'] = users
+                to_write = data
+            else:
+                # No users key provided: interpret request as full-replace of object
+                if isinstance(body, dict):
+                    to_write = body
+                else:
+                    raise HTTPException(status_code=400, detail='Nothing to write')
+        else:
+            raise HTTPException(status_code=400, detail='Target JSON is not an object; cannot insert users')
+    else:
+        # File doesn't exist: require 'users' array to create a sensible file
+        if not isinstance(users, list):
+            raise HTTPException(status_code=400, detail='Target does not exist; provide a "users" array to create it')
+        to_write = {'users': users}
+
+    try:
+        _atomic_write_json(full, to_write)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
+
+    rec = _upsert_file_record(full)
+    return {"message": "Saved", "file": rec}
 
 
 @app.delete('/api/files/id/{file_id}')
@@ -642,13 +774,60 @@ def get_discussion():
 
 
 @app.get("/api/users")
-def get_users():
-    """Return the users metadata (bp_130_users.json)"""
-    path = os.path.join(FILES_ROOT, 'bp_130_users.json')
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Users file not found")
-    with open(path, 'r', encoding='utf-8') as f:
-        return JSONResponse(content=json.load(f))
+def get_users(discussion_file: str | None = None):
+    """Return the users metadata.
+
+    Priority order:
+    1. If `discussion_file` query param is provided, try to read that file under `files_root` and extract its "users" key.
+    2. Try the default discussion file used by the discussion page (bp_130_0_d3.json) and extract its "users" key.
+    3. Scan `FILES_ROOT` for the first JSON file that contains a top-level "users" array and return it.
+    4. Fall back to the legacy `bp_130_users.json` file (original behaviour).
+
+    This makes the users endpoint return the same users list that the discussion page is using.
+    """
+
+    # Helper to load users list from a JSON file path if present
+    def _load_users_from_file(full_path: str):
+        if not os.path.exists(full_path):
+            return None
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get('users'), list):
+                return data.get('users')
+        except Exception:
+            return None
+        return None
+
+    # 1) If caller requested a specific discussion file, prefer that
+    if discussion_file:
+        try:
+            full = _safe_path(discussion_file)
+        except HTTPException:
+            raise
+        users = _load_users_from_file(full)
+        if users is not None:
+            return JSONResponse(content={"users": users})
+
+    # 2) Try the default discussion JSON used by the discussion page
+    default_discussion = os.path.join(FILES_ROOT, 'bp_130_0_d3.json')
+    users = _load_users_from_file(default_discussion)
+    if users is not None:
+        return JSONResponse(content={"users": users})
+
+    # 3) Scan files_root for the first JSON file that contains a top-level 'users' array
+    for root, _, files in os.walk(FILES_ROOT):
+        for name in files:
+            if os.path.splitext(name)[1].lower() != '.json':
+                continue
+            full = os.path.join(root, name)
+            users = _load_users_from_file(full)
+            if users is not None:
+                return JSONResponse(content={"users": users})
+
+
+
+    raise HTTPException(status_code=404, detail="Users file not found")
 
 
 @app.get("/api/llm/health")

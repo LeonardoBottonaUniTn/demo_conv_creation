@@ -10,10 +10,9 @@ interface ChatMessage {
   id: number
   sender: string
   text: string
-  time: string
 }
 
-const { getThesisStatement, getRandomPersona, loadUsers } = useUsers()
+const { getThesisStatement, loadUsers } = useUsers()
 
 // Initialize messages empty; we'll populate after loading personas so we have a valid thesis author
 const messages = ref<ChatMessage[]>([])
@@ -26,21 +25,10 @@ const showFileSelector = ref(false)
 
 // Load personas from backend and create the initial thesis message
 onMounted(async () => {
-  try {
-    await loadUsers()
-  } catch (e) {
-    // loadUsers already logs errors; continue with fallback
-  }
-
-  thesisAuthor.value = getRandomPersona() || { name: 'Thesis' }
   messages.value.push({
     id: 1,
     sender: thesisAuthor.value.name,
     text: getThesisStatement(),
-    time: new Date(Date.now() - 120000).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
   })
 
   // Show selector if no file query

@@ -54,7 +54,7 @@ Output schema:
   "users": [
     {
       "speaker": "string",
-      "description": "this is a telegram user"
+      "description": "This is a telegram user"
     }
   ],
   "tree": {

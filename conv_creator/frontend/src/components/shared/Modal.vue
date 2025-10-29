@@ -10,6 +10,9 @@
           <p>{{ content }}</p>
         </slot>
       </div>
+      <div class="modal-footer">
+        <slot name="footer"></slot>
+      </div>
     </div>
   </div>
 </template>
@@ -63,10 +66,20 @@ const handleBackdropClick = () => {
   background: white;
   border-radius: 15px;
   padding: 30px;
-  max-width: 600px;
+  /* Use percentage width so the modal scales with the viewport. Default to 60% */
+  width: 60%;
+  max-width: 1000px;
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 12px;
 }
 
 .modal-header {
@@ -106,5 +119,13 @@ const handleBackdropClick = () => {
   line-height: 1.6;
   margin: 0;
   color: #333;
+}
+
+/* Responsive modal fallback: on small screens use most of the viewport */
+@media (max-width: 900px) {
+  .modal-content {
+    width: 90%;
+    max-width: none;
+  }
 }
 </style>

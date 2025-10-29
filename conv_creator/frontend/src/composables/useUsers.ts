@@ -1,42 +1,31 @@
 import { ref, reactive } from 'vue'
-import type { ChatUser, UserPersona } from '../types/chat'
+import type { User } from '../types/chat'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
 
 export function useUsers() {
-  const personas = ref<UserPersona[]>([])
+  const personas = ref<User[]>([])
 
-  const currentUser = reactive<ChatUser>({
-    id: 1,
-    name: 'Leonardo',
-    isOnline: true,
-  })
-
-  const availablePersonas = ref<ChatUser[]>([])
-  const currentPersona = ref<ChatUser | null>(null)
+  const availablePersonas = ref<User[]>([])
+  const currentPersona = ref<User | null>(null)
 
   const loadUsers = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/users`)
       if (!res.ok) throw new Error('Failed to load users')
       const data = await res.json()
-      // Expecting { users: [...] }
       const users = Array.isArray(data.users) ? data.users : data
       personas.value = users.map((user: any) => ({
         name: user.speaker,
         description: user.description,
-        stance: user.stance,
-        stance_summary: user.stance_summary,
-        subunits: user.subunits,
       }))
+
+      console.log('Loaded personas from bblblblbackend:', personas.value)
 
       availablePersonas.value = personas.value.map((persona, index) => ({
         id: index + 2,
         name: persona.name,
         description: persona.description,
-        stance: persona.stance as 'positive' | 'negative',
-        isOnline: true,
-        lastSeen: new Date(),
       }))
 
       currentPersona.value = availablePersonas.value[0] || null
@@ -45,38 +34,11 @@ export function useUsers() {
     }
   }
 
-  const switchPersona = (personaId: number) => {
-    const persona = availablePersonas.value.find((p) => p.id === personaId)
+  const switchPersona = (personaName: string) => {
+    const persona = availablePersonas.value.find((p) => p.name === personaName)
     if (persona) {
       currentPersona.value = persona
     }
-  }
-
-  const getPersonaResponses = (stance: 'positive' | 'negative') => {
-    const positiveResponses = [
-      'I believe we can absolutely turn this around with the right innovations!',
-      'Technology and collective action are our strongest tools here.',
-      'The data shows promising pathways for positive change.',
-      "We're seeing remarkable progress in renewable energy solutions.",
-      'Community organizing has already made significant impacts.',
-      'Every action we take collectively builds momentum for change.',
-    ]
-
-    const negativeResponses = [
-      'The structural barriers make this extremely challenging.',
-      "Current market realities don't support rapid transformation.",
-      'Historical evidence shows systemic resistance to change.',
-      'The economic framework fundamentally conflicts with environmental needs.',
-      "We're dealing with deeply entrenched institutional problems.",
-      'The scale of change needed exceeds current system capabilities.',
-    ]
-
-    return stance === 'positive' ? positiveResponses : negativeResponses
-  }
-
-  const getRandomPersona = (): ChatUser => {
-    const randomIndex = Math.floor(Math.random() * availablePersonas.value.length)
-    return availablePersonas.value[randomIndex]
   }
 
   const getThesisStatement = (): string => {
@@ -85,13 +47,10 @@ export function useUsers() {
 
   return {
     personas,
-    currentUser,
     availablePersonas,
     currentPersona,
     loadUsers,
     switchPersona,
-    getPersonaResponses,
-    getRandomPersona,
     getThesisStatement,
   }
 }
