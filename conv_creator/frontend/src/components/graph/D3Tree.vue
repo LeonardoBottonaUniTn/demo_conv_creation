@@ -608,9 +608,8 @@ function restoreFullTree() {
 .minitree-box {
   position: absolute;
   top: 16px;
-  right: 16px;
-  width: 220px;
-  height: 170px;
+  left: 20px;
+  width: 25%;
   z-index: 100;
   background: rgba(255, 255, 255, 0.35);
   border: 0.5px solid #e0e0e000;
@@ -632,10 +631,10 @@ function restoreFullTree() {
 }
 .minitree-label {
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
   color: #222;
   margin-top: 6px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0.02em;
   display: flex;
   align-items: center;

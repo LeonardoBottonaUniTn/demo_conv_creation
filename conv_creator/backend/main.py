@@ -17,7 +17,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 # Now we can import from scripts
-from scripts.llm_calls import transform_discussion_json
+from scripts.llm_calls import transform_discussion_json, generate_user_bio
 
 app = FastAPI()
 
@@ -763,27 +763,17 @@ def delete_folder(folder_path: str):
     return {"deleted": True, "path": folder_path, "db_files_removed": removed}
 
 
-@app.get("/api/discussion")
-def get_discussion():
-    """Return the discussion data (bp_130_0_d3.json) so the frontend can fetch it via API."""
-    path = os.path.join(FILES_ROOT, 'bp_130_0_d3.json')
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Discussion file not found")
-    with open(path, 'r', encoding='utf-8') as f:
-        return JSONResponse(content=json.load(f))
-
-
-@app.get("/api/users")
+@app.get("/api/users/{discussion_file:path}")
 def get_users(discussion_file: Optional[str] = None):
     """Return the users metadata.
 
     Priority order:
-    1. If `discussion_file` query param is provided, try to read that file under `files_root` and extract its "users" key.
-    2. Try the default discussion file used by the discussion page (bp_130_0_d3.json) and extract its "users" key.
-    3. Scan `FILES_ROOT` for the first JSON file that contains a top-level "users" array and return it.
-    4. Fall back to the legacy `bp_130_users.json` file (original behaviour).
+    1. If `discussion_file` param is provided, try to read that file under `files_root` and extract its "users" key.
+    2. Scan `FILES_ROOT` for the first JSON file that contains a top-level "users" array and return it.
+    3. Fall back to the legacy `bp_130_users.json` file (original behaviour).
 
-    This makes the users endpoint return the same users list that the discussion page is using.
+    Note: do NOT use any implicit or hard-coded "default discussion" file. The endpoint
+    will never attempt to load a single default discussion as a fallback.
     """
 
     # Helper to load users list from a JSON file path if present
@@ -799,35 +789,24 @@ def get_users(discussion_file: Optional[str] = None):
             return None
         return None
 
-    # 1) If caller requested a specific discussion file, prefer that
-    if discussion_file:
-        try:
-            full = _safe_path(discussion_file)
-        except HTTPException:
-            raise
-        users = _load_users_from_file(full)
-        if users is not None:
-            return JSONResponse(content={"users": users})
+    # Require explicit discussion file: do NOT scan or fall back to any default.
+    if not discussion_file:
+        raise HTTPException(status_code=400, detail="A discussion_file path must be provided")
 
-    # 2) Try the default discussion JSON used by the discussion page
-    default_discussion = os.path.join(FILES_ROOT, 'bp_130_0_d3.json')
-    users = _load_users_from_file(default_discussion)
-    if users is not None:
-        return JSONResponse(content={"users": users})
+    try:
+        full = _safe_path(discussion_file)
+    except HTTPException:
+        # _safe_path already raises an HTTPException with appropriate status/detail
+        raise
 
-    # 3) Scan files_root for the first JSON file that contains a top-level 'users' array
-    for root, _, files in os.walk(FILES_ROOT):
-        for name in files:
-            if os.path.splitext(name)[1].lower() != '.json':
-                continue
-            full = os.path.join(root, name)
-            users = _load_users_from_file(full)
-            if users is not None:
-                return JSONResponse(content={"users": users})
+    users = _load_users_from_file(full)
+    if users is None:
+        if not os.path.exists(full):
+            raise HTTPException(status_code=404, detail="Discussion file not found")
+        # File exists but doesn't contain a top-level 'users' array
+        raise HTTPException(status_code=404, detail="Provided discussion file does not contain a 'users' array")
 
-
-
-    raise HTTPException(status_code=404, detail="Users file not found")
+    return JSONResponse(content={"users": users})
 
 
 @app.get("/api/llm/health")
@@ -841,6 +820,46 @@ def llm_health_check():
         import traceback
         logging.error(f"LLM health check failed: {e}\n{traceback.format_exc()}")
         return {"status": "error", "message": str(e), "traceback": traceback.format_exc()}
+
+
+@app.post('/api/llm/generate-bio')
+async def api_generate_bio(request: Request):
+    """Generate a concise user biography paragraph from provided inputs.
+
+    Expects JSON body with:
+      - existing_bio: (optional) string with prior biographical description
+      - messages: list of strings with the user's chat messages
+
+    Returns JSON: { success: True, bio: <string> }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    existing_bio = body.get('existing_bio') or body.get('existing') or body.get('bio') or ""
+    messages = body.get('messages') or body.get('chat_messages') or None
+
+    if messages is None or not isinstance(messages, list):
+        print("Messages format: ", type(messages)," Messages: ",messages)
+        raise HTTPException(status_code=400, detail="'messages' must be provided as a list of strings")
+
+    for i, m in enumerate(messages):
+        if not isinstance(m, str):
+            raise HTTPException(status_code=400, detail=f"messages[{i}] must be a string")
+
+    try:
+        bio = generate_user_bio(existing_bio, messages)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        # bubble up LLM/API errors as a 502 to indicate upstream dependency failure
+        raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
+
+    return JSONResponse({"success": True, "bio": bio})
 
 
 @app.post("/api/files/fix/{file_id}/preview")

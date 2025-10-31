@@ -54,7 +54,7 @@
     </div>
 
     <!-- Settings Modal -->
-    <Modal :isVisible="showSettingsModal" title="Group Description" @close="closeSettings">
+    <Modal :is-visible="showSettingsModal" title="Group Description" @close="closeSettings">
       <div class="settings-modal-body">
         <h4>Users in this group</h4>
         <ul class="users-list">
@@ -120,6 +120,25 @@
         </div>
       </template>
     </Modal>
+    <!-- Generated biography preview & confirm modal -->
+    <Modal
+      :is-visible="showConfirmModal"
+      title="Generated description preview"
+      @close="cancelGeneratedBio"
+    >
+      <div class="settings-modal-body">
+        <h4>Preview for {{ confirmCandidateUser }}</h4>
+        <div class="debug-json">
+          <pre style="white-space: pre-wrap">{{ confirmCandidate }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <div class="settings-footer">
+          <button class="save-btn" @click="confirmGeneratedBio">Confirm</button>
+          <button class="magic-btn" @click="cancelGeneratedBio">Cancel</button>
+        </div>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -135,6 +154,7 @@ import { useUsers } from '../../composables/useUsers'
 
 const showSettingsModal = ref(false)
 const openSettings = () => {
+  console.debug('[TelegramChat] openSettings called')
   showSettingsModal.value = true
 }
 const closeSettings = () => {
@@ -222,21 +242,127 @@ const updateDescription = (name: string) => {
   }
 }
 
-//TODO: integrate with real backend LLM call if desired
-// Per-user generation (magic) state and handler
+async function getUserContext(name: string) {
+  console.log('Fetching user context for:', name)
+
+  // gather short context from visible messages for this user
+  let context: string[] = props.messages.filter((m) => m.sender === name).map((m) => m.text)
+  console.log('Initial context from messages (length):', context.length)
+  // If the immediate messages are too short, try to fetch the discussion file and extract more nodes
+  console.log('Condition to go to try catch', context.length < 4)
+  if (context.length < 4) {
+    try {
+      console.log('So try to get from debate tree')
+      const target = activeFile.value
+      const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+      if (target) {
+        const res = await fetch(`${apiBase}/api/files/${target}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        console.log(
+          'Fetching additional context for user',
+          name,
+          'from file',
+          target,
+          'Response:',
+          res,
+        )
+        if (res.ok) {
+          const fileData = await res.json()
+          // extract all nodes by this user from the discussion tree
+          const extracted = getTextsBySpeaker(fileData.tree, name)
+          console.log('context type', typeof extracted)
+          console.log('context content', extracted)
+          if (extracted && extracted.length > 0) context = extracted
+          return context
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching additional context for user', name, e)
+      // continue with whatever we have
+    }
+  }
+}
+
+// Per-user generation (magic) state and helper functions
+const generatingUsers = reactive<Record<string, boolean>>({})
+
+// Confirmation modal state for generated bios
+const showConfirmModal = ref(false)
+const confirmCandidate = ref('')
+const confirmCandidateUser = ref('')
+
+const confirmGeneratedBio = () => {
+  if (confirmCandidateUser.value) {
+    descriptions[confirmCandidateUser.value] = confirmCandidate.value
+    // user must explicitly save; we don't modify originalDescriptions here
+  }
+  showConfirmModal.value = false
+  confirmCandidate.value = ''
+  confirmCandidateUser.value = ''
+}
+
+const cancelGeneratedBio = () => {
+  showConfirmModal.value = false
+  confirmCandidate.value = ''
+  confirmCandidateUser.value = ''
+}
 
 const handleMagic = async (name: string) => {
-  // simple simulated autofill: prefer backend persona description, otherwise a generated string
-  //get context about user to send to LLM
-  userContext = [
-    name,
-    descriptions[name],
-    props.messages.filter((m) => m.sender === name).map((m) => m.text),
-  ]
   try {
-  } catch (e) {
+    const context = await getUserContext(name)
+
+    const payload = {
+      existing_bio: descriptions[name] || '',
+      messages: context,
+    }
+
+    console.log('Magic payload for', name, payload)
+
+    const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+    const resp = await fetch(`${apiBase}/api/llm/generate-bio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!resp.ok) {
+      const text = await resp.text()
+      throw new Error(text || `HTTP ${resp.status}`)
+    }
+
+    const data = await resp.json()
+    if (data && data.success && typeof data.bio === 'string') {
+      confirmCandidate.value = data.bio.trim()
+      confirmCandidateUser.value = name
+      showConfirmModal.value = true
+    } else {
+      throw new Error('Invalid response from server')
+    }
+  } catch (e: any) {
+    console.error('Magic generation failed for', name, e)
+    saveMessage.value = `Generation failed: ${e?.message || String(e)}`
+    setTimeout(() => (saveMessage.value = ''), 5000)
   } finally {
+    generatingUsers[name] = false
   }
+}
+
+function getTextsBySpeaker(node: any, speaker: string): string[] {
+  let result = []
+
+  if (node.speaker === speaker) {
+    result.push(node.text)
+  }
+
+  if (node.children && node.children.length > 0) {
+    for (const child of node.children) {
+      result = result.concat(getTextsBySpeaker(child, speaker))
+    }
+  }
+
+  return result
 }
 
 // Save handler: persist changes to backend `/api/users` and provide feedback.
@@ -254,21 +380,35 @@ const handleSave = async () => {
       description: p.description || descriptions[p.name || p.speaker] || '',
     }
   })
+  // include target when available (prefer prop, then params, then query)
+  const target = activeFile.value
+  if (!target) {
+    saveMessage.value = 'Cannot save: no active discussion file selected.'
+    setTimeout(() => (saveMessage.value = ''), 4000)
+    return
+  }
 
   saveMessage.value = 'Saving...'
   try {
-    // include target when available (current discussion file from route query)
-    const target = (route?.query?.file as string) || undefined
     const payload: any = { users: usersToSend }
-    if (target) payload.target = target
 
-    const res = await fetch(`${apiBase}/api/files/${target}`, {
+    // normalize target: backend expects a path relative to files_root (no leading 'files_root/')
+    let normalizedTarget = String(target || '')
+    if (normalizedTarget.startsWith('files_root/')) {
+      normalizedTarget = normalizedTarget.substring('files_root/'.length)
+    }
+    if (normalizedTarget.startsWith('/')) normalizedTarget = normalizedTarget.substring(1)
+
+    const url = `${apiBase}/api/files/${encodeURIComponent(normalizedTarget)}`
+    console.debug('[TelegramChat] Saving users', { url, payload, normalizedTarget })
+    const res = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
     if (!res.ok) {
       const text = await res.text()
+      console.error('[TelegramChat] Save failed response', res.status, text)
       throw new Error(text || `HTTP ${res.status}`)
     }
     // success: update original snapshot and show confirmation
@@ -306,6 +446,7 @@ const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
 
 // Attach/detach listeners whenever the modal opens/closes
 watch(showSettingsModal, (open) => {
+  console.debug(`[TelegramChat] showSettingsModal changed -> ${open}`)
   if (open) {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('beforeunload', beforeUnloadHandler)
@@ -331,9 +472,9 @@ interface Props {
   messages: ChatMessage[]
   title?: string
   status?: string
-  currentUser?: string
   inputPlaceholder?: string
   inputValue?: string
+  file?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -341,6 +482,14 @@ const props = withDefaults(defineProps<Props>(), {
   currentUser: 'You',
   inputPlaceholder: 'Type a message...',
   inputValue: '',
+})
+
+// Active file: prefer explicit prop from parent, fall back to router params/query
+const activeFile = computed(() => {
+  const p = (props as any).file as string | undefined
+  const param = (route?.params?.file as string) || undefined
+  const query = (route?.query?.file as string) || undefined
+  return p || param || query || undefined
 })
 
 const emit = defineEmits<{
@@ -366,11 +515,16 @@ watch(
 onMounted(() => {
   newMessage.value = props.inputValue || ''
   // Populate personas from backend (will use discussion file users via /api/users)
-  loadUsers()
-    .then(() => {
-      populateDescriptions()
-    })
-    .catch((e) => console.warn('Failed to load personas for settings modal:', e))
+  console.debug('[TelegramChat] onMounted: loading users for active file', activeFile.value)
+  if (activeFile.value) {
+    loadUsers(activeFile.value)
+      .then(() => {
+        populateDescriptions()
+      })
+      .catch((e) => console.warn('Failed to load personas for settings modal:', e))
+  } else {
+    console.warn('[TelegramChat] No active discussion file; skipping loadUsers')
+  }
 })
 
 // Keep descriptions in sync if availablePersonas or personas change

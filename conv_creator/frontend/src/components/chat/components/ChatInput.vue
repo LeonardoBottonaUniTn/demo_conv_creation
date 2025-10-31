@@ -95,6 +95,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUsers } from '../../../composables/useUsers'
 
 const props = defineProps({
@@ -121,17 +122,25 @@ const selectedAddressees = ref([])
 const addresseesDropdownOpen = ref(false)
 
 onMounted(() => {
-  // load users from backend via composable
-  const { loadUsers, availablePersonas } = useUsers()
-  loadUsers().then(() => {
-    users.value = availablePersonas.value.map((p) => ({ speaker: p.name, ...p }))
+  // load users from backend via composable. The backend now requires an explicit
+  // discussion file path, so derive it from the current route (params or query).
+  const route = useRoute()
+  const fileParam = route?.params?.file || route?.query?.file || undefined
 
-    // If this is the first message, automatically select all users as addressees
-    if (props.isFirstMessage) {
-      selectedAddressees.value = users.value.map((user) => user.speaker)
-      emit('update:addressees', selectedAddressees.value)
-    }
-  })
+  const { loadUsers, availablePersonas } = useUsers()
+  if (fileParam) {
+    loadUsers(fileParam).then(() => {
+      users.value = availablePersonas.value.map((p) => ({ speaker: p.name, ...p }))
+
+      // If this is the first message, automatically select all users as addressees
+      if (props.isFirstMessage) {
+        selectedAddressees.value = users.value.map((user) => user.speaker)
+        emit('update:addressees', selectedAddressees.value)
+      }
+    })
+  } else {
+    console.warn('[ChatInput] No discussion file in route; skipping loadUsers')
+  }
 
   // Add click-outside listener
   document.addEventListener('click', handleClickOutside)

@@ -252,3 +252,117 @@ If you produce an empty node or any content after the valid JSON tree, delete it
             raise Exception("Network error. Please check your internet connection.")
         else:
             raise Exception(f"LLM API error: {error_msg}")
+
+
+# System prompt used to generate a concise user biography based on an existing
+# biographical description and a list of chat messages. This prompt follows the
+# specification provided by the user and instructs the LLM to output a single
+# concise paragraph suitable as a third-person biography.
+
+
+
+SYSTEM_BIO_PROMPT = """Generate a user biography that authentically captures the user’s distinctive argumentative style, written voice, emotional tone, and clearly expressed opinions, considering both the provided biographical description and chat messages as sources of evidence. Identify traits and features that are observable in either or both inputs, such as manner of expressing opinions, linguistic quirks, intensity of emotion, recurring themes, or typical argumentative strategies. Integrate relevant, evidenced traits from the original biography only if they are either explicitly present, consistent with, or corroborated by the style and opinions demonstrated in the messages. The biography should read naturally, as if introducing the user to others, not as a directive or guide for editors. Avoid vague, generic, or speculative statements; ensure that every point is directly traceable to one or both pieces of provided material.
+
+Do not simply summarize or repeat the original biography, nor should you include background details or personality summaries unless they are specifically reflected or reinforced in the chat messages and the biographical description. Focus on crafting a biographical narrative that highlights the user’s personal style and perspectives as demonstrated in both sources.
+
+# Input Format
+
+You will receive the following inputs:
+1. An existing biographical description of the user (as a string).
+2. A list of the user’s chat messages, formatted as:
+[
+"First user message text.",
+"Second user message text.",
+...
+"Nth user message text."
+]
+
+# Output Format
+
+Return a single, concise paragraph in the form of a user biography, focusing exclusively on the linguistic and opinion-expressing traits extracted from both the existing biography and the chat messages. The paragraph should present the user’s style and predominant viewpoints as shown in either or both inputs, as if spoken about the user to a third party. Do not include explanations, meta-commentary, or directives—produce only a third-person biographical paragraph reflecting the evidenced style, tone, and opinionated characteristics.
+
+# Example
+
+Example Input:
+1. Biographical description: "Alex is an active member of tech forums, often helping others with programming problems."
+2. Chat messages:
+[
+"I don't think that's the right approach—let's look at the documentation instead.",
+"I always prefer clear step-by-step instructions. People tend to miss details.",
+"Honestly, syntax errors really annoy me. They're so avoidable!",
+"I strongly recommend learning the basics before diving into frameworks."
+]
+
+Example Output:
+Alex is an active participant who brings clarity and candor to programming discussions, frequently advocates for methodical step-by-step solutions, and expresses strong opinions about best practices. Consistently practical in advice and attentive to detail, Alex approaches each interaction with an insistence on mastering fundamentals and a relatable frustration with avoidable mistakes, both of which are evident in help offered on tech forums and direct feedback in conversations.
+
+(For real examples, the output should be a single, well-integrated paragraph drawing on traits shown in both biography and messages, with length proportional to the amount of substantive evidence in the inputs.)
+
+# Notes
+- If in the previous description there are infos on the platform in which the user is writing, keep them
+- The output must be a user biography based solely on observable patterns and style found in the chat messages and/or biography—do not speculate or extrapolate beyond what is present.
+- Integrate, but do not simply repeat, the original biography when the messages reinforce or exemplify its statements.
+- Do not include any instructional language, bullet points, or lists.
+- Final output should be suitable for third-person presentation as a user bio and should not contain instructions or meta-commentary.
+- If the two sources present conflicting information, prioritize traits demonstrably present and consistent in the chat messages.
+
+# Reminder
+Create a concise, natural, and vivid user biography paragraph that authentically encapsulates the user’s unique style and perspectives, strictly as demonstrated in both the original biography and their chat messages, without instructional or editorial framing.
+"""
+
+
+def generate_user_bio(existing_bio: str, chat_messages: List[str], *, model: str = "meta-llama/llama-4-maverick-17b-128e-instruct", temperature: float = 1.2, max_completion_tokens: int = 2048) -> str:
+    """
+    Generate a concise third-person user biography paragraph from an existing
+    biography and a list of chat messages.
+
+    Returns the generated paragraph as a string. Raises ValueError for missing
+    configuration or Exception for API/LLM errors.
+    """
+    # verify client
+    if not client:
+        raise ValueError("Groq client not initialized. Check GROQ_API_KEY in the environment.")
+
+    # Build the user message according to the input format described in the prompt
+    try:
+        messages_json = json.dumps(chat_messages, ensure_ascii=False, indent=2)
+    except Exception:
+        # fallback: coerce into simple list representation
+        messages_json = '[' + ', '.join('"%s"' % str(m).replace('"', '\\"') for m in chat_messages) + ']' 
+
+    user_input = f"# Input\n1. {existing_bio}\n2.{messages_json}\n\n# Output"
+    print("User input", user_input)
+
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_BIO_PROMPT},
+                {"role": "user", "content": user_input}
+            ],
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            top_p=0.9,
+            stream=False,
+            stop=None,
+            seed=42
+        )
+
+        # Extract and return the text content
+        out = completion.choices[0].message.content.strip()
+        return out
+
+    except Exception as e:
+        err = str(e)
+        print(f"❌ generate_user_bio failed: {err}", file=sys.stderr)
+        if "authentication" in err.lower() or "api key" in err.lower():
+            raise Exception("Authentication failed. Please check your GROQ_API_KEY in the .env file.")
+        elif "rate limit" in err.lower():
+            raise Exception("Rate limit exceeded. Please try again later.")
+        elif "connection" in err.lower() or "network" in err.lower():
+            raise Exception("Network error. Please check your internet connection.")
+        else:
+            raise
+
+
+

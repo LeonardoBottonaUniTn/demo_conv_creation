@@ -9,10 +9,11 @@ export function useUsers() {
   const availablePersonas = ref<User[]>([])
   const currentPersona = ref<User | null>(null)
 
-  const loadUsers = async () => {
+  const loadUsers = async (file: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/users`)
+      const res = await fetch(`${API_BASE}/api/users/${file}`)
       if (!res.ok) throw new Error('Failed to load users')
+      console.log('Fetching users from backend')
       const data = await res.json()
       const users = Array.isArray(data.users) ? data.users : data
       personas.value = users.map((user: any) => ({
@@ -20,7 +21,8 @@ export function useUsers() {
         description: user.description,
       }))
 
-      console.log('Loaded personas from bblblblbackend:', personas.value)
+      //TODO: test why is called so many times
+      //console.log('Loaded personas from backend:', personas.value)
 
       availablePersonas.value = personas.value.map((persona, index) => ({
         id: index + 2,

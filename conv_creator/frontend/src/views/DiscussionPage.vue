@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiscussionGraph from '../components/graph/DiscussionGraph.vue'
 import TelegramChat from '../components/chat/TelegramChat.vue'
@@ -23,6 +23,13 @@ const route = useRoute()
 const router = useRouter()
 const showFileSelector = ref(false)
 
+// Determine the active file using route params first, then query string.
+const currentFile = computed(() => {
+  const p = route.params.file as string | undefined
+  const q = route.query.file as string | undefined
+  return p || q || undefined
+})
+
 // Load personas from backend and create the initial thesis message
 onMounted(async () => {
   messages.value.push({
@@ -31,9 +38,8 @@ onMounted(async () => {
     text: getThesisStatement(),
   })
 
-  // Show selector if no file query
-  const fname = route.query.file as string | undefined
-  if (!fname) showFileSelector.value = true
+  // Show selector if no file param or query
+  if (!currentFile.value) showFileSelector.value = true
 })
 
 const chatInputValue = ref('')
@@ -98,6 +104,7 @@ const toggleGraphCollapsed = () => {
           ref="telegramChatRef"
           :messages="messages"
           :input-value="chatInputValue"
+          :file="currentFile"
           @send-message="handleSendMessage"
           @update-input="handleUpdateInput"
           title="Discussion Chat"
@@ -112,7 +119,8 @@ const toggleGraphCollapsed = () => {
       @select="
         (name) => {
           showFileSelector = false
-          router.push({ path: '/discussion', query: { file: name } })
+          // Navigate using the named route and param so URL becomes /discussion/:file
+          router.push({ name: 'discussion', params: { file: name } })
         }
       "
       @close="() => (showFileSelector = false)"

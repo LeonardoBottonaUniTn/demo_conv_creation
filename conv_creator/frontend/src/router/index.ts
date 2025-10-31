@@ -15,7 +15,11 @@ const router = createRouter({
       },
     },
     {
-      path: '/discussion',
+      // Accept an optional dynamic `file` param so routes like
+      // /discussion or /discussion/:file both match. We still support
+      // the query style (?file=...) because the page will read params
+      // first and fall back to query string.
+      path: '/discussion/:file?',
       name: 'discussion',
       component: DiscussionPage,
       meta: {
