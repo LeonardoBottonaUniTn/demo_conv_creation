@@ -4,8 +4,8 @@ backend/files_root/*
 # Local sqlite database (runtime / dev artifact)
 backend/db.sqlite3
 # Python virtual environment used for development
-# Ignore the whole venv directory under backend
-backend/.venv/
+# Ignore the whole backend_env directory under backend
+backend/backend_env/
 # Logs
 logs
 *.log
