@@ -2,7 +2,6 @@
 
 export interface ArgumentNode {
   id: string
-  type: 'thesis' | 'pro' | 'con'
   text: string
 }
 

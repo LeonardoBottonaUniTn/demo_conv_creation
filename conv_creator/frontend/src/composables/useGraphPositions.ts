@@ -8,13 +8,6 @@ export function useGraphPositions(graphContainer: Ref<HTMLElement | undefined>) 
     return colors[branchIndex % colors.length]
   }
 
-  const getThesisConnectionStart = (): Position => {
-    return {
-      x: graphContainer.value?.clientWidth ? graphContainer.value.clientWidth / 2 : 400,
-      y: 140, // Bottom of thesis node
-    }
-  }
-
   const getBranchConnectionEnd = (branchIndex: number, totalBranches: number): Position => {
     const container = graphContainer.value
     if (!container) return { x: 400, y: 240 }
@@ -102,7 +95,6 @@ export function useGraphPositions(graphContainer: Ref<HTMLElement | undefined>) 
 
   return {
     getBranchColor,
-    getThesisConnectionStart,
     getBranchConnectionEnd,
     getSingleBranchPosition,
     getSingleConnectionStart,

@@ -1,31 +1,34 @@
 <template>
   <div
     class="message"
-    :class="{ 'own-message': message.sender === currentUserId, 'thesis-message': isThesisMessage }"
+    :class="{
+      'own-message': message.sender === currentUser.name,
+    }"
   >
     <div class="message-header" v-if="!isOwnMessage">
-      <span class="sender">{{ senderName }}</span>
-      <span v-if="senderStance" class="stance-badge" :class="senderStance">{{ senderStance }}</span>
-      <span v-if="message.addressees && message.addressees.length > 0" class="addressees">
-        → {{ message.addressees.join(', ') }}
-      </span>
+      <div class="message-meta">
+        <span class="sender">{{ senderName }}</span>
+        <span v-if="message.addressees && message.addressees.length > 0" class="addressees"
+          >→{{ message.addressees.join(',') }}</span
+        >
+      </div>
     </div>
     <div class="message-text">{{ message.text }}</div>
-    <div class="message-actions" v-if="isThesisMessage">
+    <div class="message-actions">
       <button @click="addToChat" class="add-to-chat-btn">Add to Chat</button>
     </div>
-    <div class="message-time">Turn {{ turnNumber }}</div>
+    <div class="message-turn">Turn {{ turnNumber }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ChatMessage, ChatUser } from '../../../types/chat'
+import type { ChatMessage, User } from '../../../types/chat'
 
 interface Props {
   message: ChatMessage
-  currentUserId: number
-  availablePersonas: ChatUser[]
+  currentUser: User
+  availablePersonas: User[]
   turnNumber: number
 }
 
@@ -36,29 +39,18 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const isOwnMessage = computed(() => props.message.sender === props.currentUserId)
-
-const isThesisMessage = computed(() => {
-  // More robust detection for thesis messages
-  return (
-    props.message.text.toLowerCase().includes('climate change') && props.message.text.length > 100
-  ) // Thesis is typically longer
-})
+const isOwnMessage = computed(() => props.message.sender === props.currentUser.name)
 
 const senderInfo = computed(() => {
-  if (props.message.sender === props.currentUserId) {
-    return { name: 'You', stance: null }
-  }
-
-  const persona = props.availablePersonas.find((p) => p.id === props.message.sender)
+  const persona = props.availablePersonas.find((p) => p.name === props.message.sender)
   return {
     name: persona?.name || 'Unknown',
-    stance: persona?.stance || null,
+    description: persona?.description || null,
   }
 })
 
 const senderName = computed(() => senderInfo.value.name)
-const senderStance = computed(() => senderInfo.value.stance)
+const senderDescription = computed(() => senderInfo.value.description)
 
 const addToChat = () => {
   emit('addToChat', props.message.text)
@@ -81,55 +73,28 @@ const addToChat = () => {
   margin-left: auto;
 }
 
-.message.thesis-message {
-  border-left: 4px solid #ff6b35;
-  padding-left: 12px;
-  background-color: #fff8f5;
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-
-.message.thesis-message .message-text {
-  background-color: #ff6b35;
-  color: white;
-  font-weight: 500;
-}
-
 .message-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  /* Keep header as a normal block; inner .message-meta will control layout */
   margin-bottom: 5px;
   font-size: 12px;
 }
 
-.sender {
-  font-weight: 600;
-  color: #333;
+.message-meta {
+  display: inline-flex;
+  gap: 0;
+  align-items: center;
 }
 
-.stance-badge {
-  padding: 2px 6px;
-  border-radius: 8px;
-  font-size: 9px;
+.sender {
+  margin-right: 0;
   font-weight: 600;
-  text-transform: uppercase;
+  color: #333;
 }
 
 .addressees {
   color: #666;
   font-style: italic;
   font-size: 11px;
-}
-
-.stance-badge.positive {
-  background-color: #4caf50;
-  color: white;
-}
-
-.stance-badge.negative {
-  background-color: #f44336;
-  color: white;
 }
 
 .message-text {
@@ -144,21 +109,21 @@ const addToChat = () => {
   line-height: 1.4;
 }
 
-.message-time {
+.message-turn {
   font-size: 11px;
   color: #8b98a5;
   margin-top: 4px;
 }
 
-.message.own-message .message-time {
+.message.own-message .message-turn {
   text-align: right;
 }
-
+/* 
 .message-actions {
   margin-top: 8px;
   display: flex;
   justify-content: center;
-}
+} */
 
 .add-to-chat-btn {
   background-color: #0088cc;

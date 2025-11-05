@@ -43,16 +43,11 @@ export function useUsers() {
     }
   }
 
-  const getThesisStatement = (): string => {
-    return "Can we reverse climate change? This is one of the most critical questions of our time. While some argue that technological innovation and collective action can lead us to a sustainable future, others believe that systemic barriers and economic realities make this goal nearly impossible to achieve. What's your perspective on humanity's ability to reverse climate change?"
-  }
-
   return {
     personas,
     availablePersonas,
     currentPersona,
     loadUsers,
     switchPersona,
-    getThesisStatement,
   }
 }

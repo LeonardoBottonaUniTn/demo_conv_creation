@@ -107,6 +107,15 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // allow parent to control selected sender programmatically
+  selectedSender: {
+    type: String,
+    default: '',
+  },
+  selectedAddressees: {
+    type: Array,
+    default: () => [],
+  },
 })
 const emit = defineEmits(['update:modelValue', 'send', 'update:sender', 'update:addressees'])
 const textarea = ref(null)
@@ -144,6 +153,13 @@ onMounted(() => {
 
   // Add click-outside listener
   document.addEventListener('click', handleClickOutside)
+
+  // Initialize internal sender from external prop if provided
+  if (props.selectedSender) {
+    selectedSender.value = props.selectedSender
+    // ensure parent is informed (in case it expects an update flow)
+    emit('update:sender', selectedSender.value)
+  }
 })
 
 onUnmounted(() => {
@@ -193,6 +209,16 @@ const selectSender = (speaker) => {
 
   emit('update:sender', speaker)
 }
+
+// Watch for external selectedSender changes and update internal state
+watch(
+  () => props.selectedSender,
+  (newVal) => {
+    if ((newVal || '') !== (selectedSender.value || '')) {
+      selectedSender.value = newVal || ''
+    }
+  },
+)
 
 const removeSender = () => {
   selectedSender.value = ''

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiscussionGraph from '../components/graph/DiscussionGraph.vue'
 import TelegramChat from '../components/chat/TelegramChat.vue'
 import FileSelectorModal from '../components/shared/FileSelectorModal.vue'
 import { useUsers } from '../composables/useUsers'
+import { useGraphData } from '../composables/useGraphData'
 
 interface ChatMessage {
   id: number
@@ -12,11 +13,13 @@ interface ChatMessage {
   text: string
 }
 
-const { getThesisStatement, loadUsers } = useUsers()
+const { loadUsers } = useUsers()
+const { loadDiscussionData, discussionRoot } = useGraphData()
 
-// Initialize messages empty; we'll populate after loading personas so we have a valid thesis author
-const messages = ref<ChatMessage[]>([])
 const thesisAuthor = ref<{ name: string }>({ name: 'Thesis' })
+
+// Initialize messages empty; we'll place the thesis statement in the input for editing
+const messages = ref<ChatMessage[]>([])
 
 // Router/route and modal state
 const route = useRoute()
@@ -32,11 +35,53 @@ const currentFile = computed(() => {
 
 // Load personas from backend and create the initial thesis message
 onMounted(async () => {
-  messages.value.push({
-    id: 1,
-    sender: thesisAuthor.value.name,
-    text: getThesisStatement(),
-  })
+  // Ensure users/personas are loaded so the thesis statement is valid
+  try {
+    if (currentFile.value) {
+      await loadUsers(currentFile.value)
+    }
+  } catch (e) {
+    // If loading fails, continue — we'll still try to get a thesis statement
+    // (keep app resilient to backend issues)
+    console.warn('loadUsers failed in DiscussionPage onMounted', e)
+  }
+
+  // If there's an active file, load the discussion tree and use the first node as the initial input
+  let firstNodeText: string | null = null
+  try {
+    if (currentFile.value) {
+      await loadDiscussionData(currentFile.value)
+      // discussionRoot may be an object, or an array, or have children
+      const root = discussionRoot.value
+      let firstNode: any = null
+      if (!root) {
+        firstNode = null
+      } else if (Array.isArray(root)) {
+        firstNode = root.length > 0 ? root[0] : null
+      } else if (root.text) {
+        firstNode = root
+      } else if (root.children && root.children.length > 0) {
+        firstNode = root.children[0]
+      }
+
+      if (firstNode && firstNode.text) {
+        firstNodeText = String(firstNode.text)
+        // set thesis author from the speaker if available
+        if (firstNode.speaker) thesisAuthor.value.name = String(firstNode.speaker)
+      }
+    }
+  } catch (e) {
+    console.warn('loadDiscussionData failed in DiscussionPage onMounted', e)
+  }
+
+  // Fallback: if we couldn't retrieve a first node, leave the input empty so the user can type
+  chatInputValue.value = firstNodeText || ''
+
+  // After child mounts, set the sender in the TelegramChat (if it exposes setSender)
+  await nextTick()
+  if (telegramChatRef.value && telegramChatRef.value.setSender) {
+    telegramChatRef.value.setSender(thesisAuthor.value.name)
+  }
 
   // Show selector if no file param or query
   if (!currentFile.value) showFileSelector.value = true
@@ -63,9 +108,33 @@ const handleAddFromGraph = (messageData: {
   nodeType: string
 }) => {
   chatInputValue.value = messageData.text
-  // Set the sender in the chat input (default to thesis author)
+  // Try to find the node in the loaded discussion tree and use its speaker as sender
+  const findNodeById = (id: string, node: any = discussionRoot.value): any | null => {
+    if (!node) return null
+    if (node.id === id) return node
+    if (node.children && node.children.length > 0) {
+      for (const child of node.children) {
+        const found = findNodeById(id, child)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  let senderToSet = thesisAuthor.value.name
+  try {
+    const node = messageData.nodeId ? findNodeById(messageData.nodeId) : null
+    if (node && node.speaker) {
+      senderToSet = String(node.speaker)
+      thesisAuthor.value.name = senderToSet
+    }
+  } catch (e) {
+    // keep fallback
+  }
+
+  // Set the sender in the chat input via the child component (if available)
   if (telegramChatRef.value && telegramChatRef.value.setSender) {
-    telegramChatRef.value.setSender(thesisAuthor.value.name)
+    telegramChatRef.value.setSender(senderToSet)
   }
 }
 

@@ -1,4 +1,5 @@
 <template>
+  <!-- TODO: fix line 29-->
   <div class="chat-section">
     <div class="chat-header">
       <h3>{{ title }}</h3>
@@ -23,18 +24,22 @@
 
     <div class="chat-messages" ref="messagesContainer">
       <div
-        v-for="(message, index) in messages"
+        v-for="(message, index) in localMessages"
         :key="message.id"
         class="message"
-        :class="{ 'own-message': message.sender === currentUser }"
+        :class="{
+          'own-message': message.sender === selectedSender,
+          'editing-message': message.id === editingMessageId,
+        }"
+        @dblclick.prevent="editMessage(message, index)"
       >
         <div class="message-header">
-          <span class="sender">
-            {{ message.sender }}
-            <span v-if="message.addressees && message.addressees.length > 0" class="addressees">
-              → {{ message.addressees.join(', ') }}
-            </span>
-          </span>
+          <div class="message-meta">
+            <span class="sender">{{ message.sender }}</span>
+            <span v-if="message.addressees && message.addressees.length > 0" class="addressees"
+              >→ {{ message.addressees.join(', ') }}</span
+            >
+          </div>
           <span class="time">Turn {{ index + 1 }}</span>
         </div>
         <div class="message-text">{{ message.text }}</div>
@@ -43,14 +48,25 @@
 
     <div class="chat-input">
       <ChatInput
+        ref="chatInputRef"
         v-model="newMessage"
         :placeholder="inputPlaceholder"
+        :selected-sender="selectedSender"
+        :selected-addressees="selectedAddressees"
         style="flex: 1"
         @send="sendMessage"
         @update:sender="selectSender"
         @update:addressees="selectAddressees"
         @update:modelValue="handleInputUpdate"
       />
+      <button
+        v-if="editingMessageId !== null"
+        class="cancel-edit-btn"
+        @click="cancelEdit"
+        title="Cancel edit"
+      >
+        Cancel
+      </button>
     </div>
 
     <!-- Settings Modal -->
@@ -479,10 +495,26 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   title: 'Discussion Chat',
-  currentUser: 'You',
   inputPlaceholder: 'Type a message...',
   inputValue: '',
 })
+
+// Local reactive copy of messages so we can optimistically update the UI when editing
+const localMessages = ref<ChatMessage[]>([])
+
+// Initialize localMessages and keep it in sync with prop changes
+onMounted(() => {
+  localMessages.value = (props.messages || []).slice()
+})
+
+watch(
+  () => props.messages,
+  (newMsgs) => {
+    // replace array shallowly to keep reactivity predictable
+    localMessages.value = (newMsgs || []).slice()
+  },
+  { deep: true },
+)
 
 // Active file: prefer explicit prop from parent, fall back to router params/query
 const activeFile = computed(() => {
@@ -494,11 +526,18 @@ const activeFile = computed(() => {
 
 const emit = defineEmits<{
   sendMessage: [message: { sender: string; text: string; time: string; addressees?: string[] }]
+  editMessage: [
+    message: { id: number; sender: string; text: string; time: string; addressees?: string[] },
+  ]
   updateInput: [value: string]
+  'update:sender': [sender: string]
+  'update:addressees': [addressees: string[]]
 }>()
 
 const newMessage = ref('')
 const messagesContainer = ref<HTMLElement>()
+const editingMessageId = ref<number | null>(null)
+const chatInputRef = ref<any>(null)
 const possibleSenders = ref(['You', 'Bot', 'Admin'])
 const selectedSender = ref<string | null>(null)
 const selectedAddressees = ref<string[]>([])
@@ -537,15 +576,37 @@ const sendMessage = () => {
     // Do nothing, sender must be selected, message not empty, and at least one addressee selected
     return
   }
-  const message = {
+
+  const payloadBase = {
     sender: selectedSender.value,
     text: newMessage.value,
     time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
     addressees: selectedAddressees.value,
   }
-  emit('sendMessage', message)
+
+  if (editingMessageId.value !== null) {
+    // We're editing an existing message: emit editMessage with id so parent can update in place
+    emit('editMessage', { id: editingMessageId.value, ...payloadBase })
+    // Optimistically update localMessages so UI reflects change immediately
+    const idx = localMessages.value.findIndex((m) => m.id === editingMessageId.value)
+    if (idx !== -1) {
+      localMessages.value[idx] = {
+        ...localMessages.value[idx],
+        id: editingMessageId.value,
+        ...payloadBase,
+      }
+    }
+    // clear editing state
+    editingMessageId.value = null
+  } else {
+    // Normal send flow
+    emit('sendMessage', payloadBase)
+  }
+
+  // clear input and notify parent
   newMessage.value = ''
-  emit('updateInput', '') // Emit the update to parent
+  emit('updateInput', '')
+
   nextTick(() => {
     if (messagesContainer.value) {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
@@ -570,9 +631,86 @@ const removeSender = () => {
   selectedSender.value = null
 }
 
+const cancelEdit = () => {
+  // clear editing state and notify parent/components
+  editingMessageId.value = null
+  newMessage.value = ''
+  selectedSender.value = null
+  selectedAddressees.value = []
+  ;(emit as any)('update:sender', selectedSender.value)
+  ;(emit as any)('update:addressees', selectedAddressees.value)
+  emit('updateInput', newMessage.value)
+
+  // focus input so user can continue typing a new message
+  nextTick(() => {
+    try {
+      const inst: any = chatInputRef.value
+      const root = inst?.$el || inst
+      if (root && typeof root.querySelector === 'function') {
+        const inputEl = root.querySelector('textarea, input, .message-input')
+        if (inputEl && typeof inputEl.focus === 'function') inputEl.focus()
+      }
+    } catch (e) {
+      console.debug('[TelegramChat] cancelEdit: focus failed', e)
+    }
+  })
+}
+
+// Keyboard handler active while editing: Escape cancels edit
+const onEditKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' || e.key === 'Esc') {
+    if (editingMessageId.value !== null) {
+      cancelEdit()
+    }
+  }
+}
+
+watch(editingMessageId, (val) => {
+  if (val !== null) {
+    window.addEventListener('keydown', onEditKeyDown)
+  } else {
+    window.removeEventListener('keydown', onEditKeyDown)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onEditKeyDown)
+})
+
+/**
+ * Put an existing message back into the input for editing.
+ * The message stays in the chat; this just populates the input + sender/addressees.
+ */
+const editMessage = async (message: ChatMessage, _index: number) => {
+  // mark which message we are editing so sendMessage can emit editMessage
+  editingMessageId.value = message.id
+  selectedSender.value = message.sender
+  selectedAddressees.value = Array.isArray(message.addressees) ? [...message.addressees] : []
+  newMessage.value = message.text || ''
+
+  // notify parent/listeners about the selection change and input update
+  ;(emit as any)('update:sender', selectedSender.value)
+  ;(emit as any)('update:addressees', selectedAddressees.value)
+  emit('updateInput', newMessage.value)
+
+  // give ChatInput a tick to update then focus its input if possible
+  await nextTick()
+  try {
+    const inst: any = chatInputRef.value
+    const root = inst?.$el || inst
+    if (root && typeof root.querySelector === 'function') {
+      const inputEl = root.querySelector('textarea, input, .message-input')
+      if (inputEl && typeof inputEl.focus === 'function') inputEl.focus()
+    }
+  } catch (e) {
+    // non-fatal: focusing is a nicety
+    console.debug('[TelegramChat] editMessage: focus failed', e)
+  }
+}
+
 // Auto-scroll when new messages are added
 watch(
-  () => props.messages.length,
+  () => localMessages.value.length,
   () => {
     nextTick(() => {
       if (messagesContainer.value) {
@@ -582,10 +720,15 @@ watch(
   },
 )
 
-// Expose a method to set the sender from parent (App.vue)
+// Expose methods to set sender and addressees from parent
 defineExpose({
   setSender: (sender: string) => {
     selectedSender.value = sender
+  },
+  setAddressees: (addrs: string[]) => {
+    selectedAddressees.value = Array.isArray(addrs) ? addrs : []
+    // also emit to parent so any listeners are updated
+    ;(emit as any)('update:addressees', selectedAddressees.value)
   },
 })
 </script>
@@ -800,7 +943,14 @@ defineExpose({
 
 .message {
   margin-bottom: 15px;
+  cursor: text;
   animation: slideIn 0.3s ease-out;
+}
+
+.editing-message {
+  box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.08);
+  border-radius: 12px;
+  padding: 6px;
 }
 
 .message.own-message {
@@ -830,10 +980,16 @@ defineExpose({
 }
 
 .addressees {
-  color: rgba(255, 255, 255, 0.7);
+  color: #6c757d; /* muted dark color for visibility on light background */
   font-style: italic;
-  font-size: 10px;
-  margin: 0 5px;
+  font-size: 12px;
+  margin-left: 0;
+}
+
+.message-meta {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
 }
 
 .time {
@@ -859,6 +1015,20 @@ defineExpose({
   gap: 10px;
   align-items: center;
   border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.cancel-edit-btn {
+  background: none;
+  border: 1px solid #c9dbe6;
+  color: #006ba3;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.cancel-edit-btn:hover {
+  background: #f3f8fb;
 }
 
 .sender-chip {
