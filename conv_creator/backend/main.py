@@ -19,13 +19,24 @@ if BACKEND_DIR not in sys.path:
 # Now we can import from scripts
 from scripts.llm_calls import transform_discussion_json, generate_user_bio
 
+# FastAPI app
 app = FastAPI()
 
 # Configuration
-BACKEND_DIR = os.path.dirname(__file__)  # this file lives in the backend/ folder
+# Use the already computed absolute BACKEND_DIR (set earlier using
+# os.path.dirname(os.path.abspath(__file__))). Avoid reassigning to
+# os.path.dirname(__file__) which can be a relative path depending on
+# how the application is started (this caused incorrect FILES_ROOT
+# resolution and 'file not found' errors).
 FILES_ROOT = os.path.join(BACKEND_DIR, 'files_root')
 if not os.path.exists(FILES_ROOT):
     os.makedirs(FILES_ROOT, exist_ok=True)
+    # Log when we create the folder so startup logs contain useful info
+    logger = logging.getLogger('uvicorn.error')
+    logger.error(f"Created FILES_ROOT directory at: {FILES_ROOT}")
+else:
+    logger = logging.getLogger('uvicorn.error')
+    logger.info(f"Using existing FILES_ROOT: {FILES_ROOT}")
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -33,6 +44,8 @@ ALLOWED_ORIGINS = [
 
 # Use the existing sqlite DB in the backend folder if present
 DB_PATH = os.path.join(BACKEND_DIR, 'db.sqlite3')
+logger = logging.getLogger('uvicorn.error')
+logger.info(f"BACKEND_DIR={BACKEND_DIR} FILES_ROOT={FILES_ROOT} DB_PATH={DB_PATH}")
 
 
 def _init_db() -> None:
@@ -249,15 +262,7 @@ def _resolve_stored_relpath(relpath: str) -> str:
     return os.path.normpath(os.path.join(FILES_ROOT, rp))
 
 
-def _file_metadata(path: str) -> dict:
-    stat = os.stat(path)
-    return {
-        "name": os.path.basename(path),
-        "size": stat.st_size,
-        "uploadDate": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-        "type": os.path.splitext(path)[1].lstrip('.').lower() or 'unknown',
-        "path": os.path.relpath(path, BACKEND_DIR),
-    }
+
 
 
 def _atomic_write_json(full_path: str, data: any, ensure_ascii: bool = False) -> None:
@@ -362,7 +367,6 @@ def get_file_by_id(file_id: int):
     conn.close()
     # Debug: log DB lookup results to help diagnose missing files
     logger = logging.getLogger('uvicorn.error')
-    logger.error(f"get_file_by_id: lookup id={file_id} -> row={row}, DB_PATH={DB_PATH}")
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
     # row -> (name, path)
@@ -427,6 +431,8 @@ async def save_changes_file_by_id(file_id: int, request: Request):
     relpath = row[1]
     # Resolve stored path robustly (support legacy entries)
     full = _resolve_stored_relpath(relpath)
+    logger = logging.getLogger('uvicorn.error')
+    logger.info(f"save_changes_file_by_id: id={file_id} name={name} relpath={relpath} resolved_full={full}")
     # Ensure resolved path is inside FILES_ROOT (protect against legacy/absolute paths)
     files_root_norm = os.path.normpath(FILES_ROOT)
     if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
@@ -446,6 +452,7 @@ async def save_changes_file_by_id(file_id: int, request: Request):
     try:
         _atomic_write_json(full, data)
     except Exception as e:
+        logger.error(f"save_changes_file_by_id: failed to write {full}: {e}")
         raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
     # update DB record (e.g., uploadDate)
     rec = _upsert_file_record(full)
@@ -465,9 +472,11 @@ async def save_changes_file_by_name(filename: str, request: Request):
       {"users": [...]} when the caller provides a 'users' array.
     - Only JSON files are allowed for modification via this endpoint.
     """
+    logger = logging.getLogger('uvicorn.error')
     try:
         full = _safe_path(filename)
     except HTTPException:
+        logger.error(f"save_changes_file_by_name: unsafe path requested: {filename}")
         raise
 
     # Ensure we operate on a file (not a directory)
@@ -481,6 +490,7 @@ async def save_changes_file_by_name(filename: str, request: Request):
     try:
         body = await request.json()
     except Exception as e:
+        logger.error(f"save_changes_file_by_name: invalid JSON for {filename}: {e}")
         raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
 
     users = body.get('users') if isinstance(body, dict) else None
@@ -513,8 +523,10 @@ async def save_changes_file_by_name(filename: str, request: Request):
         to_write = {'users': users}
 
     try:
+        logger.info(f"save_changes_file_by_name: writing to {full} (exists={os.path.exists(full)}) size={len(json.dumps(to_write)) if to_write is not None else 0}")
         _atomic_write_json(full, to_write)
     except Exception as e:
+        logger.error(f"save_changes_file_by_name: failed to write {full}: {e}")
         raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
 
     rec = _upsert_file_record(full)
