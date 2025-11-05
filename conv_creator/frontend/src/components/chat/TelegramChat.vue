@@ -525,9 +525,9 @@ const activeFile = computed(() => {
 })
 
 const emit = defineEmits<{
-  sendMessage: [message: { sender: string; text: string; time: string; addressees?: string[] }]
+  sendMessage: [message: { sender: string; text: string; time: string; addressees: string[] }]
   editMessage: [
-    message: { id: number; sender: string; text: string; time: string; addressees?: string[] },
+    message: { id: number; sender: string; text: string; time: string; addressees: string[] },
   ]
   updateInput: [value: string]
   'update:sender': [sender: string]
@@ -686,6 +686,8 @@ const editMessage = async (message: ChatMessage, _index: number) => {
   editingMessageId.value = message.id
   selectedSender.value = message.sender
   selectedAddressees.value = Array.isArray(message.addressees) ? [...message.addressees] : []
+  console.log('Selected addresses: ', selectedAddressees.value)
+
   newMessage.value = message.text || ''
 
   // notify parent/listeners about the selection change and input update

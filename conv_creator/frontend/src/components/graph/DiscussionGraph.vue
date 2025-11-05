@@ -33,7 +33,7 @@
     <!-- Node detail modal -->
     <Modal
       :is-visible="!!selectedNode"
-      :title="selectedNode ? `${selectedNode.type.toUpperCase()} - ${selectedNode.id}` : ''"
+      :title="selectedNode ? ` - ${selectedNode.id}` : ''"
       :content="selectedNode?.text || ''"
       @close="handleCloseModal"
     />
@@ -94,7 +94,6 @@ const {
   loading,
   error,
   currentBranchNodes,
-  thesisNode,
   loadDiscussionData,
   expandBranch,
   isBranchExpanded,
@@ -105,7 +104,6 @@ const {
 
 const {
   getBranchColor,
-  getThesisConnectionStart,
   getBranchConnectionEnd,
   getSingleBranchPosition,
   getSingleConnectionStart,
@@ -133,7 +131,6 @@ const handleAddToChat = (node: ArgumentNode, branchIndex: number) => {
     text: node.text,
     type: 'user',
     nodeId: node.id,
-    nodeType: node.type,
   }
 
   // Emit the message to the parent component
@@ -143,7 +140,7 @@ const handleAddToChat = (node: ArgumentNode, branchIndex: number) => {
   expandBranch(branchIndex)
 
   // Optional: Show a brief confirmation
-  console.log(`Added to chat: ${node.type} - ${node.text.substring(0, 50)}...`)
+  console.log(`Added to chat: ${node.id} - ${node.text.substring(0, 50)}...`)
   console.log(`Expanded branch ${branchIndex + 1}`)
 }
 

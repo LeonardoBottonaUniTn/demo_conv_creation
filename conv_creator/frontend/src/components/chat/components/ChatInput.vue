@@ -160,6 +160,16 @@ onMounted(() => {
     // ensure parent is informed (in case it expects an update flow)
     emit('update:sender', selectedSender.value)
   }
+  // Initialize internal addressees from external prop if provided
+  if (
+    props.selectedAddressees &&
+    Array.isArray(props.selectedAddressees) &&
+    props.selectedAddressees.length > 0
+  ) {
+    selectedAddressees.value = [...props.selectedAddressees]
+    // Inform parent to keep flows consistent (no-op if identical)
+    emit('update:addressees', selectedAddressees.value)
+  }
 })
 
 onUnmounted(() => {
@@ -218,6 +228,19 @@ watch(
       selectedSender.value = newVal || ''
     }
   },
+)
+
+// Watch for external selectedAddressees changes and update internal state
+watch(
+  () => props.selectedAddressees,
+  (newVal) => {
+    const vals = Array.isArray(newVal) ? newVal : []
+    // shallow compare via JSON; avoids updating reference when identical
+    if (JSON.stringify(vals) !== JSON.stringify(selectedAddressees.value)) {
+      selectedAddressees.value = [...vals]
+    }
+  },
+  { deep: true },
 )
 
 const removeSender = () => {

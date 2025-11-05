@@ -9,7 +9,6 @@ export interface ChatMessage {
   text: string
   type: 'user' | 'bot'
   nodeId: string
-  nodeType: string
 }
 
 export interface Position {
