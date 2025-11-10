@@ -635,6 +635,56 @@ def migrate_files():
     return {"migrated": len(entries), "files": entries}
 
 
+@app.post('/api/files/save-draft/{filename:path}')
+async def save_draft_file(filename: str, request: Request):
+    """Create a new draft JSON file under FILES_ROOT with the provided filename.
+
+    Expects a JSON body like: { "payload": { ... } }
+    The filename is interpreted as a relative path inside files_root. If the
+    provided filename has no .json extension, ".json" will be appended.
+    """
+    logger = logging.getLogger('uvicorn.error')
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"save_draft_file: invalid JSON body for {filename}: {e}")
+        raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
+
+    payload = body.get('payload') if isinstance(body, dict) else None
+    if payload is None:
+        raise HTTPException(status_code=400, detail='Missing "payload" in request body')
+
+    # Ensure filename ends with .json
+    if not filename.lower().endswith('.json'):
+        filename = filename + '.json'
+
+    # Save under files_root; use _safe_path to avoid traversal
+    try:
+        rel = filename
+        full = _safe_path(rel)
+    except HTTPException as e:
+        logger.error(f"save_draft_file: unsafe filename requested: {filename}")
+        raise
+
+    # If target exists and is a directory, error
+    if os.path.isdir(full):
+        raise HTTPException(status_code=400, detail='Target filename resolves to a directory')
+
+    try:
+        _atomic_write_json(full, payload, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"save_draft_file: failed to write {full}: {e}")
+        raise HTTPException(status_code=500, detail=f'Failed to write draft file: {e}')
+
+    # Update DB record for the new file
+    try:
+        rec = _upsert_file_record(full)
+    except Exception:
+        rec = None
+
+    return {"message": "Draft saved", "file": rec or os.path.basename(full)}
+
+
 @app.post('/api/files/move')
 def move_files_endpoint(data: dict):
     """Move files listed in `targets` to the `dest` folder (relative to files_root).
@@ -1026,6 +1076,9 @@ async def apply_file_fix(file_id: int, request: Request):
         "backup_created": backup_created,
         "overwrite": overwrite
     }
+    
+    
+
 
 
 @app.post("/api/files/delete-backup")

@@ -358,11 +358,14 @@ const confirmSave = async () => {
   if (!draftName.value || !lastPayload.value) return
   const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
   try {
-    const resp = await fetch(`${apiBase}/api/files/save-draft`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: draftName.value, payload: lastPayload.value }),
-    })
+    const resp = await fetch(
+      `${apiBase}/api/files/save-draft/${encodeURIComponent(draftName.value)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: lastPayload.value }),
+      },
+    )
     if (!resp.ok) {
       const txt = await resp.text()
       throw new Error(txt || `HTTP ${resp.status}`)
