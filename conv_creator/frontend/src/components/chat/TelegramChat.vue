@@ -28,19 +28,19 @@
         :key="message.id"
         class="message"
         :class="{
-          'own-message': message.sender === selectedSender,
+          'own-message': message.speaker === selectedSpeaker,
           'editing-message': message.id === editingMessageId,
         }"
         @dblclick.prevent="editMessage(message, index)"
       >
         <div class="message-header">
           <div class="message-meta">
-            <span class="sender">{{ message.sender }}</span>
+            <span class="speaker">{{ message.speaker }}</span>
             <span v-if="message.addressees && message.addressees.length > 0" class="addressees"
               >→ {{ message.addressees.join(', ') }}</span
             >
           </div>
-          <span class="time">Turn {{ index + 1 }}</span>
+          <span class="turn">Turn {{ index + 1 }}</span>
         </div>
         <div class="message-text">{{ message.text }}</div>
       </div>
@@ -51,11 +51,11 @@
         ref="chatInputRef"
         v-model="newMessage"
         :placeholder="inputPlaceholder"
-        :selected-sender="selectedSender"
+        :selected-speaker="selectedSpeaker"
         :selected-addressees="selectedAddressees"
         style="flex: 1"
         @send="sendMessage"
-        @update:sender="selectSender"
+        @update:speaker="selectSpeaker"
         @update:addressees="selectAddressees"
         @update:modelValue="handleInputUpdate"
       />
@@ -126,12 +126,38 @@
             class="save-btn"
             :disabled="!isDirtyAny"
             :aria-disabled="!isDirtyAny"
-            @click="handleSave"
+            @click="handleSaveDraft"
             :title="isDirtyAny ? 'Save changes' : 'No changes to save'"
           >
-            Save
+            Save a draft
           </button>
-
+          <button
+            class="save-btn"
+            :disabled="!isDirtyAny"
+            :aria-disabled="!isDirtyAny"
+            @click="handleSaveDraft"
+            :title="isDirtyAny ? 'Save changes' : 'No changes to save'"
+          >
+            Export
+          </button>
+          <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
+        </div>
+      </template>
+    </Modal>
+    <!-- Save Draft Modal -->
+    <Modal :is-visible="showSaveModal" title="Save draft" @close="closeSaveModal">
+      <div class="settings-modal-body">
+        <label for="draft-name">Draft file name</label>
+        <input id="draft-name" class="draft-name-input" v-model="draftName" />
+        <h4>Preview</h4>
+        <div class="debug-json">
+          <pre style="white-space: pre-wrap">{{ lastPayloadPreview }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <div class="settings-footer">
+          <button class="save-btn" :disabled="!draftName" @click="confirmSave">Save draft</button>
+          <button class="save-btn" @click="closeSaveModal">Cancel</button>
           <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
         </div>
       </template>
@@ -167,6 +193,7 @@ import { useRoute } from 'vue-router'
 import ChatInput from './components/ChatInput.vue'
 import Modal from '../shared/Modal.vue'
 import { useUsers } from '../../composables/useUsers'
+import { useActiveFile } from '../../composables/useActiveFile'
 
 const showSettingsModal = ref(false)
 const openSettings = () => {
@@ -178,7 +205,7 @@ const closeSettings = () => {
 }
 
 // Load personas from backend so settings modal can show them
-const { loadUsers, personas, availablePersonas, currentPersona } = useUsers()
+const { loadUsers, personas, availablePersonas } = useUsers()
 
 // get current route (safe single call). Some environments may not provide a router;
 // in that case `route` will be null and we guard access with optional chaining.
@@ -198,7 +225,7 @@ const usersList = computed(() => {
   if (personas.value && personas.value.length > 0) {
     return personas.value.map((p) => p.name)
   }
-  const users = props.messages.map((m) => m.sender)
+  const users = props.messages.map((m) => m.speaker)
   return Array.from(new Set(users))
 })
 
@@ -238,7 +265,7 @@ const populateDescriptions = () => {
     return
   }
   // Fallback: derive from messages
-  const users = Array.from(new Set(props.messages.map((m) => m.sender)))
+  const users = Array.from(new Set(props.messages.map((m) => m.speaker)))
   users.forEach((u) => {
     if (!(u in descriptions)) descriptions[u] = ''
     if (!(u in originalDescriptions)) originalDescriptions[u] = ''
@@ -262,37 +289,25 @@ async function getUserContext(name: string) {
   console.log('Fetching user context for:', name)
 
   // gather short context from visible messages for this user
-  let context: string[] = props.messages.filter((m) => m.sender === name).map((m) => m.text)
+  let context: string[] = props.messages.filter((m) => m.speaker === name).map((m) => m.text)
   console.log('Initial context from messages (length):', context.length)
   // If the immediate messages are too short, try to fetch the discussion file and extract more nodes
   console.log('Condition to go to try catch', context.length < 4)
   if (context.length < 4) {
+    // Prefer using the already-loaded `fileContent` from the composable. If not present,
+    // try to load it now.
     try {
-      console.log('So try to get from debate tree')
       const target = activeFile.value
-      const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
-      if (target) {
-        const res = await fetch(`${apiBase}/api/files/${target}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        })
-        console.log(
-          'Fetching additional context for user',
-          name,
-          'from file',
-          target,
-          'Response:',
-          res,
-        )
-        if (res.ok) {
-          const fileData = await res.json()
-          // extract all nodes by this user from the discussion tree
-          const extracted = getTextsBySpeaker(fileData.tree, name)
-          console.log('context type', typeof extracted)
-          console.log('context content', extracted)
-          if (extracted && extracted.length > 0) context = extracted
-          return context
-        }
+      let fileData = fileContent.value
+      if (!fileData && target) {
+        fileData = await ensureLoaded(target)
+      }
+      if (fileData) {
+        const extracted = getTextsBySpeaker(fileData.tree, name)
+        console.log('context type', typeof extracted)
+        console.log('context content', extracted)
+        if (extracted && extracted.length > 0) context = extracted
+        return context
       }
     } catch (e) {
       console.error('Error fetching additional context for user', name, e)
@@ -323,6 +338,45 @@ const cancelGeneratedBio = () => {
   showConfirmModal.value = false
   confirmCandidate.value = ''
   confirmCandidateUser.value = ''
+}
+
+// Save-draft modal state
+const showSaveModal = ref(false)
+const draftName = ref('')
+const lastPayload = ref<any>(null)
+const lastPayloadPreview = computed(() =>
+  lastPayload.value ? JSON.stringify(lastPayload.value, null, 2) : '',
+)
+
+const closeSaveModal = () => {
+  showSaveModal.value = false
+  // keep lastPayload for debugging, but clear name
+  draftName.value = ''
+}
+
+const confirmSave = async () => {
+  if (!draftName.value || !lastPayload.value) return
+  const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+  try {
+    const resp = await fetch(`${apiBase}/api/files/save-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: draftName.value, payload: lastPayload.value }),
+    })
+    if (!resp.ok) {
+      const txt = await resp.text()
+      throw new Error(txt || `HTTP ${resp.status}`)
+    }
+    const data = await resp.json()
+    saveMessage.value = data?.message || 'Draft saved'
+    // close modal after a short delay to show feedback
+    setTimeout(() => {
+      showSaveModal.value = false
+    }, 800)
+  } catch (e: any) {
+    console.error('Save draft failed', e)
+    saveMessage.value = `Save failed: ${e?.message || String(e)}`
+  }
 }
 
 const handleMagic = async (name: string) => {
@@ -382,65 +436,28 @@ function getTextsBySpeaker(node: any, speaker: string): string[] {
 }
 
 // Save handler: persist changes to backend `/api/users` and provide feedback.
-const handleSave = async () => {
-  // prepare payload: use availablePersonas if present (they track ids), otherwise use personas
-  const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
-  const usersToSend = (
-    availablePersonas.value && availablePersonas.value.length > 0
-      ? availablePersonas.value
-      : personas.value
-  ).map((p: any) => {
-    // backend expects a 'speaker' field historically; include description too
-    return {
-      speaker: p.name || p.speaker,
-      description: p.description || descriptions[p.name || p.speaker] || '',
-    }
-  })
-  // include target when available (prefer prop, then params, then query)
-  const target = activeFile.value
-  if (!target) {
-    saveMessage.value = 'Cannot save: no active discussion file selected.'
-    setTimeout(() => (saveMessage.value = ''), 4000)
+const handleSaveDraft = async () => {
+  const refFile = activeFile.value
+  if (!refFile) {
+    console.warn('[TelegramChat] No active file; cannot save personas')
     return
   }
-
-  saveMessage.value = 'Saving...'
   try {
-    const payload: any = { users: usersToSend }
-
-    // normalize target: backend expects a path relative to files_root (no leading 'files_root/')
-    let normalizedTarget = String(target || '')
-    if (normalizedTarget.startsWith('files_root/')) {
-      normalizedTarget = normalizedTarget.substring('files_root/'.length)
-    }
-    if (normalizedTarget.startsWith('/')) normalizedTarget = normalizedTarget.substring(1)
-
-    const url = `${apiBase}/api/files/${encodeURIComponent(normalizedTarget)}`
-    console.debug('[TelegramChat] Saving users', { url, payload, normalizedTarget })
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      console.error('[TelegramChat] Save failed response', res.status, text)
-      throw new Error(text || `HTTP ${res.status}`)
-    }
-    // success: update original snapshot and show confirmation
-    Object.keys(descriptions).forEach((k) => {
-      originalDescriptions[k] = descriptions[k] || ''
-    })
-    saveMessage.value = 'Saved'
-    setTimeout(() => (saveMessage.value = ''), 1600)
-    // close modal after saving
-    closeSettings()
-  } catch (err: any) {
-    console.error('Failed to save users:', err)
-    saveMessage.value = `Save failed: ${err?.message || String(err)}`
-    // clear message after a little while but keep modal open so user can retry
-    setTimeout(() => (saveMessage.value = ''), 5000)
+    //get file content
+  } catch (error) {}
+  const payload = {
+    fileRef: refFile,
+    users: Object.keys(descriptions).map((name) => ({
+      name,
+      description: descriptions[name],
+    })),
+    tree: fileContent.value ? fileContent.value.tree : null,
+    discussion: [...props.messages],
   }
+
+  lastPayload.value = payload
+  draftName.value = `${refFile || 'draft'}-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  showSaveModal.value = true
 }
 
 // Keyboard shortcut and navigation protection when settings modal is open
@@ -448,7 +465,7 @@ const onKeyDown = (e: KeyboardEvent) => {
   const key = e.key ? e.key.toLowerCase() : ''
   if ((e.ctrlKey || e.metaKey) && key === 's') {
     e.preventDefault()
-    if (isDirtyAny.value) handleSave()
+    if (isDirtyAny.value) handleSaveDraft()
   }
 }
 
@@ -479,7 +496,8 @@ onBeforeUnmount(() => {
 
 interface ChatMessage {
   id: number
-  sender: string
+  referenceId?: string
+  speaker: string
   text: string
   addressees?: string[]
 }
@@ -516,21 +534,44 @@ watch(
   { deep: true },
 )
 
-// Active file: prefer explicit prop from parent, fall back to router params/query
-const activeFile = computed(() => {
+// Shared active file and file content via composable
+const { activeFile, fileContent, loadFile, ensureLoaded } = useActiveFile()
+
+// Determine desired active file based on prop / router (same priority as before)
+const desiredActiveFileRef = computed(() => {
   const p = (props as any).file as string | undefined
   const param = (route?.params?.file as string) || undefined
   const query = (route?.query?.file as string) || undefined
   return p || param || query || undefined
 })
 
+// whenever the desired active file changes, try to load it into the shared composable
+watch(
+  desiredActiveFileRef,
+  (val) => {
+    if (!val) return
+    // If the composable already has the content for this file, skip loading again
+    if (fileContent.value && activeFile.value === val) return
+    ensureLoaded(val).catch((e) => console.warn('[TelegramChat] ensureLoaded failed', e))
+  },
+  { immediate: true },
+)
+
 const emit = defineEmits<{
-  sendMessage: [message: { sender: string; text: string; time: string; addressees: string[] }]
+  sendMessage: [
+    message: { speaker: string; text: string; addressees: string[]; referenceId?: string },
+  ]
   editMessage: [
-    message: { id: number; sender: string; text: string; time: string; addressees: string[] },
+    message: {
+      id: number
+      speaker: string
+      text: string
+      addressees: string[]
+      referenceId?: string
+    },
   ]
   updateInput: [value: string]
-  'update:sender': [sender: string]
+  'update:speaker': [speaker: string]
   'update:addressees': [addressees: string[]]
 }>()
 
@@ -538,9 +579,9 @@ const newMessage = ref('')
 const messagesContainer = ref<HTMLElement>()
 const editingMessageId = ref<number | null>(null)
 const chatInputRef = ref<any>(null)
-const possibleSenders = ref(['You', 'Bot', 'Admin'])
-const selectedSender = ref<string | null>(null)
+const selectedSpeaker = ref<string | null>(null)
 const selectedAddressees = ref<string[]>([])
+const selectedReferenceId = ref<string | null>(null)
 
 // Watch for external input value changes
 watch(
@@ -554,9 +595,14 @@ watch(
 onMounted(() => {
   newMessage.value = props.inputValue || ''
   // Populate personas from backend (will use discussion file users via /api/users)
-  console.debug('[TelegramChat] onMounted: loading users for active file', activeFile.value)
-  if (activeFile.value) {
-    loadUsers(activeFile.value)
+  console.debug(
+    '[TelegramChat] onMounted: loading users for active file',
+    desiredActiveFileRef.value,
+  )
+  if (desiredActiveFileRef.value) {
+    // The watcher (with immediate:true) will load the file into the composable.
+    // Here we only load personas; populateDescriptions will pick up personas when available.
+    loadUsers(desiredActiveFileRef.value as string)
       .then(() => {
         populateDescriptions()
       })
@@ -572,16 +618,16 @@ watch([availablePersonas, personas], () => {
 })
 
 const sendMessage = () => {
-  if (!selectedSender.value || !newMessage.value.trim() || selectedAddressees.value.length === 0) {
-    // Do nothing, sender must be selected, message not empty, and at least one addressee selected
+  if (!selectedSpeaker.value || !newMessage.value.trim() || selectedAddressees.value.length === 0) {
+    // Do nothing, speaker must be selected, message not empty, and at least one addresseee selected
     return
   }
 
   const payloadBase = {
-    sender: selectedSender.value,
+    speaker: selectedSpeaker.value,
     text: newMessage.value,
-    time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
     addressees: selectedAddressees.value,
+    referenceId: selectedReferenceId.value || undefined,
   }
 
   if (editingMessageId.value !== null) {
@@ -599,6 +645,12 @@ const sendMessage = () => {
     // clear editing state
     editingMessageId.value = null
   } else {
+    console.debug(
+      '[TelegramChat] sendMessage called. editingMessageId=',
+      editingMessageId.value,
+      ' payload:',
+      payloadBase,
+    )
     // Normal send flow
     emit('sendMessage', payloadBase)
   }
@@ -614,8 +666,8 @@ const sendMessage = () => {
   })
 }
 
-const selectSender = (sender: string) => {
-  selectedSender.value = sender
+const selectSpeaker = (speaker: string) => {
+  selectedSpeaker.value = speaker
 }
 
 const selectAddressees = (addressees: string[]) => {
@@ -627,17 +679,18 @@ const handleInputUpdate = (value: string) => {
   emit('updateInput', value)
 }
 
-const removeSender = () => {
-  selectedSender.value = null
+const removeSpeaker = () => {
+  selectedSpeaker.value = null
 }
 
 const cancelEdit = () => {
   // clear editing state and notify parent/components
   editingMessageId.value = null
   newMessage.value = ''
-  selectedSender.value = null
+  selectedSpeaker.value = null
   selectedAddressees.value = []
-  ;(emit as any)('update:sender', selectedSender.value)
+  selectedReferenceId.value = null
+  ;(emit as any)('update:speaker', selectedSpeaker.value)
   ;(emit as any)('update:addressees', selectedAddressees.value)
   emit('updateInput', newMessage.value)
 
@@ -679,19 +732,19 @@ onBeforeUnmount(() => {
 
 /**
  * Put an existing message back into the input for editing.
- * The message stays in the chat; this just populates the input + sender/addressees.
+ * The message stays in the chat; this just populates the input + speaker/addressees.
  */
 const editMessage = async (message: ChatMessage, _index: number) => {
   // mark which message we are editing so sendMessage can emit editMessage
   editingMessageId.value = message.id
-  selectedSender.value = message.sender
+  selectedSpeaker.value = message.speaker
   selectedAddressees.value = Array.isArray(message.addressees) ? [...message.addressees] : []
-  console.log('Selected addresses: ', selectedAddressees.value)
+  console.log('Selected addressees: ', selectedAddressees.value)
 
   newMessage.value = message.text || ''
 
   // notify parent/listeners about the selection change and input update
-  ;(emit as any)('update:sender', selectedSender.value)
+  ;(emit as any)('update:speaker', selectedSpeaker.value)
   ;(emit as any)('update:addressees', selectedAddressees.value)
   emit('updateInput', newMessage.value)
 
@@ -722,15 +775,18 @@ watch(
   },
 )
 
-// Expose methods to set sender and addressees from parent
+// Expose methods to set speaker and addressees from parent
 defineExpose({
-  setSender: (sender: string) => {
-    selectedSender.value = sender
+  setSpeaker: (speaker: string) => {
+    selectedSpeaker.value = speaker
   },
   setAddressees: (addrs: string[]) => {
     selectedAddressees.value = Array.isArray(addrs) ? addrs : []
     // also emit to parent so any listeners are updated
     ;(emit as any)('update:addressees', selectedAddressees.value)
+  },
+  setReferenceId: (refId: string | null) => {
+    selectedReferenceId.value = refId
   },
 })
 </script>
@@ -860,6 +916,15 @@ defineExpose({
   overflow: auto;
   white-space: pre-wrap;
 }
+/* Draft name input */
+.draft-name-input {
+  width: 100%;
+  padding: 8px 10px;
+  margin: 6px 0 12px 0;
+  border-radius: 6px;
+  border: 1px solid #e6eef4;
+  font-size: 14px;
+}
 /* Footer inside settings modal */
 .settings-footer {
   display: flex;
@@ -977,7 +1042,7 @@ defineExpose({
   flex-direction: row-reverse;
 }
 
-.sender {
+.speaker {
   font-weight: 600;
 }
 
@@ -994,7 +1059,7 @@ defineExpose({
   align-items: center;
 }
 
-.time {
+.turn {
   font-size: 10px;
 }
 
@@ -1033,7 +1098,7 @@ defineExpose({
   background: #f3f8fb;
 }
 
-.sender-chip {
+.speaker-chip {
   display: flex;
   align-items: center;
   background: #ffffff;
@@ -1053,10 +1118,10 @@ defineExpose({
   cursor: pointer;
 }
 
-.sender-select-dropdown {
+.speaker-select-dropdown {
   position: relative;
 }
-.sender-select-btn {
+.speaker-select-btn {
   background-color: #4caf50;
   color: white;
   border: none;
@@ -1066,7 +1131,7 @@ defineExpose({
   font-weight: 600;
   transition: background-color 0.2s;
 }
-.sender-select-btn:hover {
+.speaker-select-btn:hover {
   background-color: #45a049;
 }
 .dropdown-content {

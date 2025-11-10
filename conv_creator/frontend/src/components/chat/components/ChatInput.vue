@@ -1,40 +1,40 @@
 <template>
   <div class="chat-input chat-input-container">
-    <!-- Sender select buttons and chips stacked vertically -->
-    <div class="sender-column">
-      <div class="sender-chip-wrapper left-sender">
-        <div class="sender-select-wrapper" @click="toggleDropdown">
-          <button class="sender-btn">
-            <span class="sender-icon">👤</span>
+    <!-- Speaker select buttons and chips stacked vertically -->
+    <div class="speaker-column">
+      <div class="speaker-chip-wrapper left-speaker">
+        <div class="speaker-select-wrapper" @click="toggleDropdown">
+          <button class="speaker-btn">
+            <span class="speaker-icon">👤</span>
             <span class="dropdown-arrow">▼</span>
           </button>
-          <ul v-if="dropdownOpen" class="sender-dropdown">
-            <li v-for="user in users" :key="user.speaker" @click.stop="selectSender(user.speaker)">
+          <ul v-if="dropdownOpen" class="speaker-dropdown">
+            <li v-for="user in users" :key="user.speaker" @click.stop="selectSpeaker(user.speaker)">
               {{ user.speaker }}
             </li>
           </ul>
         </div>
-        <div v-if="selectedSender" class="sender-chip">
-          <span class="chip-label">{{ selectedSender }}</span>
-          <button class="chip-remove-btn" @click.stop="removeSender" aria-label="Remove sender">
+        <div v-if="selectedSpeaker" class="speaker-chip">
+          <span class="chip-label">{{ selectedSpeaker }}</span>
+          <button class="chip-remove-btn" @click.stop="removeSpeaker" aria-label="Remove speaker">
             &times;
           </button>
         </div>
       </div>
 
-      <div class="sender-chip-wrapper right-sender">
+      <div class="speaker-chip-wrapper right-speaker">
         <div
-          class="sender-select-wrapper"
+          class="speaker-select-wrapper"
           ref="addresseesDropdownRef"
           @click="toggleAddresseesDropdown"
         >
-          <button class="sender-btn">
-            <span class="sender-icon">➡️</span>
+          <button class="speaker-btn">
+            <span class="speaker-icon">➡️</span>
             <span class="dropdown-arrow">▼</span>
           </button>
-          <ul v-if="addresseesDropdownOpen" class="sender-dropdown">
+          <ul v-if="addresseesDropdownOpen" class="speaker-dropdown">
             <li
-              v-for="user in users.filter((u) => u.speaker !== selectedSender)"
+              v-for="user in users.filter((u) => u.speaker !== selectedSpeaker)"
               :key="user.speaker"
               @click.stop="toggleAddressee(user.speaker)"
             >
@@ -50,15 +50,15 @@
         </div>
         <div v-if="selectedAddressees.length > 0" class="addressees-chips">
           <div
-            v-for="addressee in selectedAddressees"
-            :key="addressee"
-            class="sender-chip addressee-chip"
+            v-for="addresseee in selectedAddressees"
+            :key="addresseee"
+            class="speaker-chip addresseee-chip"
           >
-            <span class="chip-label">{{ addressee }}</span>
+            <span class="chip-label">{{ addresseee }}</span>
             <button
               class="chip-remove-btn"
-              @click.stop="removeAddressee(addressee)"
-              aria-label="Remove addressee"
+              @click.stop="removeAddressee(addresseee)"
+              aria-label="Remove addresseee"
             >
               &times;
             </button>
@@ -68,7 +68,7 @@
     </div>
 
     <div class="input-row">
-      <!-- Sender select dropdown button -->
+      <!-- Speaker select dropdown button -->
 
       <!-- Expanding textarea -->
       <textarea
@@ -84,8 +84,8 @@
         v-if="modelValue.trim().length > 0"
         class="send-btn"
         @click="send"
-        :disabled="!selectedSender || selectedAddressees.length === 0"
-        :aria-disabled="!selectedSender || selectedAddressees.length === 0"
+        :disabled="!selectedSpeaker || selectedAddressees.length === 0"
+        :aria-disabled="!selectedSpeaker || selectedAddressees.length === 0"
       >
         ➤
       </button>
@@ -107,8 +107,8 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  // allow parent to control selected sender programmatically
-  selectedSender: {
+  // allow parent to control selected speaker programmatically
+  selectedSpeaker: {
     type: String,
     default: '',
   },
@@ -117,13 +117,13 @@ const props = defineProps({
     default: () => [],
   },
 })
-const emit = defineEmits(['update:modelValue', 'send', 'update:sender', 'update:addressees'])
+const emit = defineEmits(['update:modelValue', 'send', 'update:speaker', 'update:addressees'])
 const textarea = ref(null)
 const addresseesDropdownRef = ref(null)
 
-// Sender dropdown logic (left side)
+// Speaker dropdown logic (left side)
 const users = ref([])
-const selectedSender = ref('')
+const selectedSpeaker = ref('')
 const dropdownOpen = ref(false)
 
 // Addressees dropdown logic (right side)
@@ -154,11 +154,11 @@ onMounted(() => {
   // Add click-outside listener
   document.addEventListener('click', handleClickOutside)
 
-  // Initialize internal sender from external prop if provided
-  if (props.selectedSender) {
-    selectedSender.value = props.selectedSender
+  // Initialize internal speaker from external prop if provided
+  if (props.selectedSpeaker) {
+    selectedSpeaker.value = props.selectedSpeaker
     // ensure parent is informed (in case it expects an update flow)
-    emit('update:sender', selectedSender.value)
+    emit('update:speaker', selectedSpeaker.value)
   }
   // Initialize internal addressees from external prop if provided
   if (
@@ -200,32 +200,32 @@ watch(
 
 const toggleDropdown = () => {
   dropdownOpen.value = !dropdownOpen.value
-  // Close addressees dropdown when opening sender dropdown
+  // Close addressees dropdown when opening speaker dropdown
   if (dropdownOpen.value) {
     addresseesDropdownOpen.value = false
   }
 }
 
-const selectSender = (speaker) => {
-  selectedSender.value = speaker
+const selectSpeaker = (speaker) => {
+  selectedSpeaker.value = speaker
   dropdownOpen.value = false
 
-  // Remove the sender from addressees if they're already selected as an addressee
-  const addresseeIndex = selectedAddressees.value.indexOf(speaker)
-  if (addresseeIndex > -1) {
-    selectedAddressees.value.splice(addresseeIndex, 1)
+  // Remove the speaker from addressees if they're already selected as an addresseee
+  const addresseeeIndex = selectedAddressees.value.indexOf(speaker)
+  if (addresseeeIndex > -1) {
+    selectedAddressees.value.splice(addresseeeIndex, 1)
     emit('update:addressees', selectedAddressees.value)
   }
 
-  emit('update:sender', speaker)
+  emit('update:speaker', speaker)
 }
 
-// Watch for external selectedSender changes and update internal state
+// Watch for external selectedSpeaker changes and update internal state
 watch(
-  () => props.selectedSender,
+  () => props.selectedSpeaker,
   (newVal) => {
-    if ((newVal || '') !== (selectedSender.value || '')) {
-      selectedSender.value = newVal || ''
+    if ((newVal || '') !== (selectedSpeaker.value || '')) {
+      selectedSpeaker.value = newVal || ''
     }
   },
 )
@@ -243,15 +243,15 @@ watch(
   { deep: true },
 )
 
-const removeSender = () => {
-  selectedSender.value = ''
-  emit('update:sender', '')
+const removeSpeaker = () => {
+  selectedSpeaker.value = ''
+  emit('update:speaker', '')
 }
 
 // Addressees functions
 const toggleAddresseesDropdown = () => {
   addresseesDropdownOpen.value = !addresseesDropdownOpen.value
-  // Close sender dropdown when opening addressees dropdown
+  // Close speaker dropdown when opening addressees dropdown
   if (addresseesDropdownOpen.value) {
     dropdownOpen.value = false
   }
@@ -306,10 +306,10 @@ const send = () => {
     emit('update:modelValue', '')
     resetHeight()
 
-    // Clear sender and addressees after sending
-    selectedSender.value = ''
+    // Clear speaker and addressees after sending
+    selectedSpeaker.value = ''
     selectedAddressees.value = []
-    emit('update:sender', '')
+    emit('update:speaker', '')
     emit('update:addressees', [])
   }
 }
@@ -328,7 +328,7 @@ const send = () => {
   flex-direction: column;
 }
 
-.sender-column {
+.speaker-column {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -336,7 +336,7 @@ const send = () => {
   gap: 8px;
 }
 
-.sender-chip-wrapper {
+.speaker-chip-wrapper {
   width: 100%;
   display: flex;
   align-self: start;
@@ -345,11 +345,11 @@ const send = () => {
   margin-bottom: 0;
 }
 
-.sender-chip-wrapper.right-sender {
+.speaker-chip-wrapper.right-speaker {
   justify-content: flex-start;
 }
 
-.sender-chip {
+.speaker-chip {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -387,7 +387,7 @@ const send = () => {
   margin-top: 4px;
 }
 
-.addressee-chip {
+.addresseee-chip {
   background: #e8f4f8;
   color: #006ba3;
   font-size: 14px;
@@ -483,13 +483,13 @@ button {
   cursor: not-allowed;
 }
 
-/* Sender select styles */
-.sender-select-wrapper {
+/* Speaker select styles */
+.speaker-select-wrapper {
   position: relative;
   margin-right: 8px;
   z-index: 20;
 }
-.sender-btn {
+.speaker-btn {
   background: #fff;
   color: #006ba3;
   border-radius: 16px;
@@ -503,13 +503,13 @@ button {
   height: 32px;
   cursor: pointer;
 }
-.sender-icon {
+.speaker-icon {
   font-size: 18px;
 }
 .dropdown-arrow {
   font-size: 12px;
 }
-.sender-dropdown {
+.speaker-dropdown {
   position: absolute;
   bottom: 110%; /* open upwards */
   left: 0;
@@ -524,7 +524,7 @@ button {
   max-height: 160px;
   overflow-y: auto;
 }
-.sender-dropdown li {
+.speaker-dropdown li {
   padding: 4px 12px;
   cursor: pointer;
   color: #006ba3;
@@ -533,7 +533,7 @@ button {
   display: flex;
   align-items: center;
 }
-.sender-dropdown li:hover {
+.speaker-dropdown li:hover {
   background: #e6f2fa;
 }
 

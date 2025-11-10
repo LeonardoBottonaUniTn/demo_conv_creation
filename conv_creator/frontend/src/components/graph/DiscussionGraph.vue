@@ -47,7 +47,7 @@ import { useRoute } from 'vue-router'
 import Modal from '../shared/Modal.vue'
 import { useGraphData } from '../../composables/useGraphData'
 import { useGraphPositions } from '../../composables/useGraphPositions'
-import type { ArgumentNode, ChatMessage } from '../../types/graph'
+import type { ArgumentNode, ChatMessage, AddToChatPayload } from '../../types/graph'
 import D3Tree from './D3Tree.vue'
 
 interface Props {
@@ -125,23 +125,21 @@ const handleCloseModal = () => {
   selectedNode.value = null
 }
 
-const handleAddToChat = (node: ArgumentNode, branchIndex: number) => {
-  // Create a message from the selected node
+const handleAddToChat = (payload: AddToChatPayload) => {
+  // Normalize payload and create ChatMessage expected by parent
+  const text = payload.text || (payload.node && payload.node.text) || ''
+  const nodeId = payload.nodeId || (payload.node && payload.node.id) || ''
+
   const message: ChatMessage = {
-    text: node.text,
+    text,
     type: 'user',
-    nodeId: node.id,
+    nodeId,
   }
 
   // Emit the message to the parent component
   emit('addMessage', message)
 
-  // Expand this branch to show the next layer
-  expandBranch(branchIndex)
-
-  // Optional: Show a brief confirmation
-  console.log(`Added to chat: ${node.id} - ${node.text.substring(0, 50)}...`)
-  console.log(`Expanded branch ${branchIndex + 1}`)
+  console.log(`Added to chat: ${nodeId} - ${text.substring(0, 50)}...`)
 }
 
 // Initialize data

@@ -4,7 +4,7 @@
       v-for="(message, index) in messages"
       :key="message.id"
       :message="message"
-      :current-user-id="currentUserId"
+      :current-user="currentUser"
       :available-personas="availablePersonas"
       :turn-number="index + 1"
       @addToChat="handleAddToChat"
@@ -15,16 +15,17 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
 import ChatMessage from './ChatMessage.vue'
-import type { ChatMessage as ChatMessageType, ChatUser } from '../../../types/chat'
+import type { ChatMessage as ChatMessageType, User } from '../../../types/chat'
+import type { AddToChatPayload } from '@/types/graph'
 
 interface Props {
   messages: ChatMessageType[]
-  currentUserId: number
-  availablePersonas: ChatUser[]
+  currentUser: User
+  availablePersonas: User[]
 }
 
 interface Emits {
-  addToChat: [text: string]
+  addToChat: [payload: AddToChatPayload]
 }
 
 const props = defineProps<Props>()
@@ -32,8 +33,9 @@ const emit = defineEmits<Emits>()
 
 const messagesContainer = ref<HTMLElement>()
 
-const handleAddToChat = (text: string) => {
-  emit('addToChat', text)
+const handleAddToChat = (payload: AddToChatPayload) => {
+  // Pass through the normalized payload up to parent
+  emit('addToChat', payload)
 }
 
 // Auto-scroll when new messages are added

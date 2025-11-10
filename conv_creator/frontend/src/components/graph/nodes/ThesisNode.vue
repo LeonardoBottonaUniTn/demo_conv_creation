@@ -2,7 +2,7 @@
   <div class="thesis-node" @click="handleClick">
     <div class="node-header">
       <span class="node-id">{{ node.id }}</span>
-      <span class="node-type">{{ node.type.toUpperCase() }}</span>
+      <span class="node-type">{{ node.id.toUpperCase() }}</span>
     </div>
     <div class="node-content">
       {{ truncatedText }}

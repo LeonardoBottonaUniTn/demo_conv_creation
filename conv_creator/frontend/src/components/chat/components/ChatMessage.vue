@@ -2,12 +2,12 @@
   <div
     class="message"
     :class="{
-      'own-message': message.sender === currentUser.name,
+      'own-message': message.speaker === currentUser.name,
     }"
   >
     <div class="message-header" v-if="!isOwnMessage">
       <div class="message-meta">
-        <span class="sender">{{ senderName }}</span>
+        <span class="speaker">{{ speakerName }}</span>
         <span v-if="message.addressees && message.addressees.length > 0" class="addressees"
           >→{{ message.addressees.join(',') }}</span
         >
@@ -32,28 +32,35 @@ interface Props {
   turnNumber: number
 }
 
+import type { AddToChatPayload } from '@/types/graph'
+
 interface Emits {
-  addToChat: [text: string]
+  addToChat: [payload: AddToChatPayload]
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const isOwnMessage = computed(() => props.message.sender === props.currentUser.name)
+const isOwnMessage = computed(() => props.message.speaker === props.currentUser.name)
 
-const senderInfo = computed(() => {
-  const persona = props.availablePersonas.find((p) => p.name === props.message.sender)
+const speakerInfo = computed(() => {
+  const persona = props.availablePersonas.find((p) => p.name === props.message.speaker)
   return {
     name: persona?.name || 'Unknown',
     description: persona?.description || null,
   }
 })
 
-const senderName = computed(() => senderInfo.value.name)
-const senderDescription = computed(() => senderInfo.value.description)
+const speakerName = computed(() => speakerInfo.value.name)
+const speakerDescription = computed(() => speakerInfo.value.description)
 
 const addToChat = () => {
-  emit('addToChat', props.message.text)
+  // Emit a normalized payload so receivers can rely on a single contract
+  const payload: AddToChatPayload = {
+    text: props.message.text,
+    source: 'chat',
+  }
+  emit('addToChat', payload)
 }
 </script>
 
@@ -85,7 +92,7 @@ const addToChat = () => {
   align-items: center;
 }
 
-.sender {
+.speaker {
   margin-right: 0;
   font-weight: 600;
   color: #333;

@@ -1,12 +1,12 @@
 <template>
   <div
-    :class="['argument-node', `node-${node.type}`, ...nodeClasses]"
+    :class="['argument-node', `node-${node.id}`, ...nodeClasses]"
     @click="handleNodeClick"
     :title="nodeTitle"
   >
     <div class="node-header">
       <span class="node-id">{{ node.id }}</span>
-      <span class="node-type">{{ node.type.toUpperCase() }}</span>
+      <span class="node-type">{{ node.id.toUpperCase() }}</span>
     </div>
     <div class="node-content">
       {{ truncatedText }}
@@ -20,7 +20,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ArgumentNode } from '@/types/graph'
+import type { ArgumentNode, AddToChatPayload } from '@/types/graph'
 
 interface Props {
   node: ArgumentNode
@@ -34,7 +34,8 @@ interface Props {
 
 interface Emits {
   nodeClick: [node: ArgumentNode]
-  addToChat: [node: ArgumentNode]
+  // emit a normalized payload when requesting add-to-chat
+  addToChat: [payload: AddToChatPayload]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -59,7 +60,13 @@ const handleNodeClick = () => {
 }
 
 const handleAddToChat = () => {
-  emit('addToChat', props.node)
+  const payload: AddToChatPayload = {
+    text: props.node.text,
+    nodeId: props.node.id,
+    node: props.node,
+    source: 'graph',
+  }
+  emit('addToChat', payload)
 }
 </script>
 

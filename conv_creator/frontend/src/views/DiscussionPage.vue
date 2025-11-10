@@ -9,8 +9,10 @@ import { useGraphData } from '../composables/useGraphData'
 
 interface ChatMessage {
   id: number
-  sender: string
+  referenceId: string
+  speaker: string
   text: string
+  addressees?: string[]
 }
 
 const { loadUsers } = useUsers()
@@ -77,10 +79,10 @@ onMounted(async () => {
   // Fallback: if we couldn't retrieve a first node, leave the input empty so the user can type
   chatInputValue.value = firstNodeText || ''
 
-  // After child mounts, set the sender in the TelegramChat (if it exposes setSender)
+  // After child mounts, set the speaker in the TelegramChat (if it exposes setSpeaker)
   await nextTick()
-  if (telegramChatRef.value && telegramChatRef.value.setSender) {
-    telegramChatRef.value.setSender(thesisAuthor.value.name)
+  if (telegramChatRef.value && telegramChatRef.value.setSpeaker) {
+    telegramChatRef.value.setSpeaker(thesisAuthor.value.name)
   }
 
   // Show selector if no file param or query
@@ -89,10 +91,19 @@ onMounted(async () => {
 
 const chatInputValue = ref('')
 
-const handleSendMessage = (message: { sender: string; text: string; time: string }) => {
+const handleSendMessage = (message: {
+  speaker: string
+  text: string
+  addressees: string[]
+  referenceId?: string
+}) => {
+  // Map the incoming 'speaker' field from TelegramChat to our internal 'speaker' property.
   messages.value.push({
     id: messages.value.length + 1,
-    ...message,
+    referenceId: message.referenceId || '',
+    speaker: message.speaker,
+    text: message.text,
+    addressees: Array.isArray(message.addressees) ? message.addressees : [],
   })
 }
 
@@ -101,40 +112,39 @@ const handleUpdateInput = (value: string) => {
 }
 
 const telegramChatRef = ref()
-const handleAddFromGraph = (messageData: {
-  text: string
-  type: 'user' | 'bot'
-  nodeId: string
-  nodeType: string
-}) => {
+const handleAddFromGraph = (messageData: any) => {
   chatInputValue.value = messageData.text
-  // Try to find the node in the loaded discussion tree and use its speaker as sender
-  const findNodeById = (id: string, node: any = discussionRoot.value): any | null => {
+  // Try to find the node in the loaded discussion tree and use its speaker as speaker
+  const findNodeById = (referenceId: string, node: any = discussionRoot.value): any | null => {
     if (!node) return null
-    if (node.id === id) return node
+    if (node.id === referenceId) return node
     if (node.children && node.children.length > 0) {
       for (const child of node.children) {
-        const found = findNodeById(id, child)
+        const found = findNodeById(referenceId, child)
         if (found) return found
       }
     }
     return null
   }
 
-  let senderToSet = thesisAuthor.value.name
+  let speakerToSet = thesisAuthor.value.name
   try {
-    const node = messageData.nodeId ? findNodeById(messageData.nodeId) : null
+    const node = messageData.referenceId ? findNodeById(messageData.referenceId) : null
     if (node && node.speaker) {
-      senderToSet = String(node.speaker)
-      thesisAuthor.value.name = senderToSet
+      speakerToSet = String(node.speaker)
+      thesisAuthor.value.name = speakerToSet
     }
   } catch (e) {
     // keep fallback
   }
 
-  // Set the sender in the chat input via the child component (if available)
-  if (telegramChatRef.value && telegramChatRef.value.setSender) {
-    telegramChatRef.value.setSender(senderToSet)
+  // Set the speaker in the chat input via the child component (if available)
+  if (telegramChatRef.value && telegramChatRef.value.setSpeaker) {
+    telegramChatRef.value.setSpeaker(speakerToSet)
+  }
+  // Also set the referenceId in the chat so outgoing messages include the node id
+  if (telegramChatRef.value && telegramChatRef.value.setReferenceId) {
+    telegramChatRef.value.setReferenceId(messageData.referenceId || null)
   }
 }
 

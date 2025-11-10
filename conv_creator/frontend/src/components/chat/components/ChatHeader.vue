@@ -6,18 +6,12 @@
       </div>
       <div class="user-details">
         <div class="user-name">{{ otherUser.name }}</div>
-        <div class="status">
-          {{ isTyping ? 'typing...' : getStatus() }}
-        </div>
         <div v-if="otherUser.description" class="user-description">
           {{ otherUser.description }}
         </div>
       </div>
     </div>
     <div class="header-actions">
-      <div v-if="otherUser.stance" class="stance-badge" :class="otherUser.stance">
-        {{ otherUser.stance }}
-      </div>
       <button @click="handleClearChat" class="clear-btn">Clear</button>
     </div>
   </div>
@@ -25,11 +19,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ChatUser } from '../../../types/chat'
+import type { User } from '../../../types/chat'
 
 interface Props {
-  currentUser: ChatUser
-  otherUser: ChatUser
+  currentUser: User
+  otherUser: User
   isTyping?: boolean
 }
 
@@ -42,20 +36,6 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<Emits>()
-
-const getStatus = () => {
-  if (props.otherUser.isOnline) {
-    return 'online'
-  } else if (props.otherUser.lastSeen) {
-    const timeDiff = Date.now() - props.otherUser.lastSeen.getTime()
-    const minutes = Math.floor(timeDiff / 60000)
-    if (minutes < 1) return 'last seen just now'
-    if (minutes < 60) return `last seen ${minutes}m ago`
-    const hours = Math.floor(minutes / 60)
-    return `last seen ${hours}h ago`
-  }
-  return 'offline'
-}
 
 const handleClearChat = () => {
   emit('clearChat')

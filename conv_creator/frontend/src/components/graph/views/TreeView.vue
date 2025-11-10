@@ -59,7 +59,11 @@
 import ThesisNode from '../nodes/ThesisNode.vue'
 import ArgumentNode from '../nodes/ArgumentNode.vue'
 import TreeConnections from './TreeConnections.vue'
-import type { ArgumentNode as ArgumentNodeType, BranchesData } from '@/types/graph'
+import type {
+  ArgumentNode as ArgumentNodeType,
+  BranchesData,
+  AddToChatPayload,
+} from '@/types/graph'
 
 interface Props {
   thesisNode: ArgumentNodeType
@@ -73,14 +77,31 @@ interface Props {
 
 interface Emits {
   selectNode: [node: ArgumentNodeType]
-  addToChat: [node: ArgumentNodeType, branchIndex: number]
+  addToChat: [payload: AddToChatPayload]
 }
 
 defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const handleAddToChat = (node: ArgumentNodeType, branchIndex: number) => {
-  emit('addToChat', node, branchIndex)
+const handleAddToChat = (
+  payloadOrNode: ArgumentNodeType | AddToChatPayload,
+  branchIndex: number,
+) => {
+  // Accept either the new AddToChatPayload (emitted by ArgumentNode after refactor)
+  // or the old node shape. Normalize and include branchIndex.
+  let payload: AddToChatPayload
+  if ((payloadOrNode as AddToChatPayload).text !== undefined) {
+    payload = { ...(payloadOrNode as AddToChatPayload) }
+  } else {
+    const node = payloadOrNode as ArgumentNodeType
+    payload = {
+      text: node.text,
+      nodeId: node.id,
+      node,
+      source: 'graph',
+    }
+  }
+  emit('addToChat', payload)
 }
 </script>
 

@@ -2,10 +2,10 @@
 
 export interface ChatMessage {
   id: number
+  referenceId?: string
   text: string
-  sender: string
-  addressees: string[] // Array of addressee names
-  timestamp: Date
+  speaker: string
+  addressees: string[] // Array of addresseee names
 }
 
 export interface User {

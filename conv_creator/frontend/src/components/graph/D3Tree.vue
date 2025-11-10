@@ -350,7 +350,14 @@ function renderTree() {
           .text(buttonContainerWidth < 120 ? 'Chat' : 'Add to chat')
           .on('click', function (event) {
             event.stopPropagation()
-            emit('addToChat', d.data)
+            // normalize payload to the unified AddToChatPayload shape
+            const payload = {
+              text: d.data && d.data.text ? d.data.text : '',
+              nodeId: d.data && d.data.id ? d.data.id : undefined,
+              node: d.data,
+              source: 'graph',
+            }
+            emit('addToChat', payload)
           })
 
         // Show 'Focus this node' for every node except the currently focused one
