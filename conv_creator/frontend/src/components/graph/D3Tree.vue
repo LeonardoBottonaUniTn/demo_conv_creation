@@ -223,6 +223,17 @@ function renderTree() {
     .attr('class', 'node')
     .each(function (d) {
       const group = d3.select(this)
+      // Make the whole node group clickable (so text/labels are also clickable)
+      group.style('cursor', 'pointer').on('click', function (event) {
+        try {
+          // Stop if inner controls already handled the event (they call stopPropagation)
+          // Focus the clicked node and compute its focused subtree
+          focusedNodeId.value = d.data.id
+          focusedSubtree.value = getFocusedSubtree(d)
+        } catch (e) {
+          console.debug('Node click handler error', e)
+        }
+      })
       // Recompute boxWidth based on actual treeWidth to keep nodes non-overlapping
       if (isFocusedTree) {
         const maxNodes = Math.max(...Object.values(nodesByDepthCount))
