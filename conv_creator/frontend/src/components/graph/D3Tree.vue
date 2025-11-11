@@ -10,10 +10,10 @@
     >
       <!-- Tree will be rendered here by d3 -->
     </svg>
-      <!-- Graph controls (reset view, etc.) -->
-      <div class="graph-controls" role="group" aria-label="Graph controls">
-        <button class="reset-view" @click="resetView" title="Reset view">Reset view</button>
-      </div>
+    <!-- Graph controls (reset view, etc.) -->
+    <div class="graph-controls" role="group" aria-label="Graph controls">
+      <button class="reset-view" @click="resetView" title="Reset view">Reset view</button>
+    </div>
     <div v-if="focusedNodeId" class="minitree-box">
       <svg
         ref="miniSvgRef"
@@ -83,10 +83,7 @@ function resetView() {
   if (!svgRef.value || !zoomBehaviorObj) return
   const svg = d3.select(svgRef.value)
   // Smoothly transition back to identity (no pan/zoom)
-  svg
-    .transition()
-    .duration(450)
-    .call(zoomBehaviorObj.transform, d3.zoomIdentity)
+  svg.transition().duration(450).call(zoomBehaviorObj.transform, d3.zoomIdentity)
 }
 
 watch(
@@ -120,7 +117,45 @@ function renderTree() {
   const root = d3.hierarchy(treeDataToRender)
   // Center tree vertically: reduce height and increase top margin
   const verticalPadding = 80
-  const treeLayout = d3.tree().size([props.width, props.height - verticalPadding * 2])
+
+  // Compute nodes per depth BEFORE layout so we can reserve enough horizontal
+  // space to avoid overlap. This helps when a layer contains many nodes.
+  const preNodes = root.descendants()
+  const nodesByDepthCount = {}
+  preNodes.forEach((n) => {
+    nodesByDepthCount[n.depth] = (nodesByDepthCount[n.depth] || 0) + 1
+  })
+  const maxNodesInLayer = Math.max(...Object.values(nodesByDepthCount), 1)
+
+  // Minimum spacing between nodes. For focused mode we'll compute a box width
+  // that fits content; otherwise use a sensible minimum for circle nodes.
+  const nodeMargin = 24
+  const minCircleSpacing = 48 // min horizontal distance for circle nodes (r=20 + gap)
+
+  const isFocusedTree = focusedNodeId.value && focusedSubtree.value
+
+  // Compute an initial box width for focused layout (uses available props.width as baseline)
+  const minBoxWidth = 180
+  let boxWidth = 260
+  if (isFocusedTree) {
+    // Adaptive width based on available component width; ensure at least minBoxWidth
+    boxWidth = Math.max(
+      minBoxWidth,
+      Math.floor((props.width - nodeMargin * (maxNodesInLayer - 1)) / maxNodesInLayer),
+    )
+  }
+
+  // Use nodeSize to enforce a minimum horizontal spacing (dx) between nodes so
+  // overlaps are prevented regardless of layout size. Choose dx based on
+  // focused vs normal mode.
+  const dx = isFocusedTree
+    ? boxWidth + nodeMargin
+    : Math.max(minCircleSpacing, Math.floor(props.width / maxNodesInLayer))
+  // dy: vertical spacing between levels. Compute based on available height and max depth.
+  const maxDepth = Math.max(...preNodes.map((n) => n.depth), 1)
+  const dy = Math.max(80, Math.floor((props.height - verticalPadding * 2) / (maxDepth + 1)))
+
+  const treeLayout = d3.tree().nodeSize([dx, dy])
   treeLayout(root)
 
   const nodes = root.descendants()
@@ -133,7 +168,9 @@ function renderTree() {
   // and apply the transform on this group. Keep a nested content group
   // to apply initial centering translate so node coordinates stay the same.
   const zoomRoot = svg.append('g').attr('class', 'zoom-root')
-  const contentGroup = zoomRoot.append('g').attr('transform', `translate(${centerX}, ${verticalPadding})`)
+  const contentGroup = zoomRoot
+    .append('g')
+    .attr('transform', `translate(${centerX}, ${verticalPadding})`)
 
   // Apply d3 zoom behaviour to the svg element. We store the zoom on the svg
   // so wheel/touch/pinch gestures will transform the zoomRoot group.
@@ -184,26 +221,15 @@ function renderTree() {
     .join('g')
     .attr('class', 'node')
     .each(function (d) {
-      const isFocusedTree = focusedNodeId.value && focusedSubtree.value
       const group = d3.select(this)
-      let boxWidth = 260
+      // Recompute boxWidth based on actual treeWidth to keep nodes non-overlapping
+      if (isFocusedTree) {
+        const maxNodes = Math.max(...Object.values(nodesByDepthCount))
+        const adaptive = Math.floor((treeWidth - nodeMargin * (maxNodes - 1)) / maxNodes)
+        boxWidth = Math.max(minBoxWidth, adaptive)
+      }
       const boxHeight = 110
       if (isFocusedTree) {
-        // Calculate max nodes in any layer (depth)
-        const nodesByDepth = {}
-        root.descendants().forEach((node) => {
-          nodesByDepth[node.depth] = (nodesByDepth[node.depth] || 0) + 1
-        })
-        const maxNodesInLayer = Math.max(...Object.values(nodesByDepth))
-        // Minimum width for a node
-        const minBoxWidth = 180
-        // Margin between nodes
-        const nodeMargin = 24
-        // Adaptive width based on available SVG width
-        boxWidth = Math.max(
-          minBoxWidth,
-          Math.floor((props.width - nodeMargin * (maxNodesInLayer - 1)) / maxNodesInLayer),
-        )
         let nodeTypeClass = ''
         let isFocused = focusedNodeId.value === d.data.id
         switch (d.data.type) {
@@ -707,13 +733,13 @@ function restoreFullTree() {
   align-items: center;
 }
 .graph-controls .reset-view {
-  background: rgba(255,255,255,0.9);
-  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   padding: 6px 10px;
   border-radius: 8px;
   font-size: 12px;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 .graph-controls .reset-view:hover {
   transform: translateY(-2px);
