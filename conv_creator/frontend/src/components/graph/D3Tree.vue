@@ -10,6 +10,10 @@
     >
       <!-- Tree will be rendered here by d3 -->
     </svg>
+      <!-- Graph controls (reset view, etc.) -->
+      <div class="graph-controls" role="group" aria-label="Graph controls">
+        <button class="reset-view" @click="resetView" title="Reset view">Reset view</button>
+      </div>
     <div v-if="focusedNodeId" class="minitree-box">
       <svg
         ref="miniSvgRef"
@@ -49,6 +53,11 @@ const props = defineProps({
 const svgRef = ref(null)
 const miniSvgRef = ref(null)
 
+// Keep references to the d3 svg selection and the zoom behavior so we can
+// programmatically reset the view later.
+let svgD3 = null
+let zoomBehaviorObj = null
+
 const focusedNodeId = ref(null)
 const focusedSubtree = ref(null)
 
@@ -70,6 +79,16 @@ onMounted(() => {
   renderMiniTree()
 })
 
+function resetView() {
+  if (!svgRef.value || !zoomBehaviorObj) return
+  const svg = d3.select(svgRef.value)
+  // Smoothly transition back to identity (no pan/zoom)
+  svg
+    .transition()
+    .duration(450)
+    .call(zoomBehaviorObj.transform, d3.zoomIdentity)
+}
+
 watch(
   () => props.treeData,
   () => {
@@ -86,6 +105,8 @@ watch(focusedNodeId, async () => {
 
 function renderTree() {
   const svg = d3.select(svgRef.value)
+  // store selection so other functions can use it
+  svgD3 = svg
   svg.selectAll('*').remove() // Clear previous
   // Remove previous HTML buttons
   htmlButtons.value.forEach((btn) => btn.remove())
@@ -108,11 +129,38 @@ function renderTree() {
   const treeWidth = maxX - minX
   const centerX = props.width / 2 - (minX + treeWidth / 2)
 
-  // Center tree vertically in SVG
-  const treeGroup = svg.append('g').attr('transform', `translate(${centerX}, ${verticalPadding})`)
+  // Create a zoomable root group so all content can be panned / zoomed
+  // and apply the transform on this group. Keep a nested content group
+  // to apply initial centering translate so node coordinates stay the same.
+  const zoomRoot = svg.append('g').attr('class', 'zoom-root')
+  const contentGroup = zoomRoot.append('g').attr('transform', `translate(${centerX}, ${verticalPadding})`)
 
-  // Draw links
-  treeGroup
+  // Apply d3 zoom behaviour to the svg element. We store the zoom on the svg
+  // so wheel/touch/pinch gestures will transform the zoomRoot group.
+  const zoomBehavior = d3
+    .zoom()
+    .scaleExtent([0.2, 4])
+    .on('zoom', (event) => {
+      zoomRoot.attr('transform', event.transform)
+    })
+  // keep a reference for external control (reset)
+  zoomBehaviorObj = zoomBehavior
+
+  // Prevent browser default (page zoom) when user uses ctrl/cmd + wheel.
+  // Also allow touch gestures (pinch) by disabling browser touch-action default.
+  svg.style('touch-action', 'none')
+  svg.call(zoomBehavior)
+  svg.on('wheel', (event) => {
+    // In many browsers ctrlKey (or metaKey on mac) indicates intent to zoom the page.
+    // We intercept ctrlKey || metaKey to prevent page zoom and instead let d3.zoom handle it.
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault()
+      // Let d3.zoom handle the event (it will still be delivered).
+    }
+  })
+
+  // Draw links inside the content group
+  contentGroup
     .append('g')
     .selectAll('path')
     .data(root.links())
@@ -129,7 +177,7 @@ function renderTree() {
     )
 
   // Draw nodes
-  treeGroup
+  contentGroup
     .append('g')
     .selectAll('g.node')
     .data(root.descendants())
@@ -646,5 +694,28 @@ function restoreFullTree() {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Graph controls overlay (top-right) */
+.graph-controls {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 160;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.graph-controls .reset-view {
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(0,0,0,0.08);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+}
+.graph-controls .reset-view:hover {
+  transform: translateY(-2px);
 }
 </style>
