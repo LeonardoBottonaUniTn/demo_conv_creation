@@ -41,6 +41,7 @@
 
 <script setup>
 import { ref, onMounted, watch, nextTick } from 'vue'
+import { getSpeakerColors } from '@/composables/useSpeakerColors'
 import Modal from '@/components/shared/Modal.vue'
 import * as d3 from 'd3'
 
@@ -245,6 +246,7 @@ function renderTree() {
           default:
             nodeTypeClass = ''
         }
+        const speakerColors = getSpeakerColors(d.data && d.data.speaker ? d.data.speaker : '')
         group
           .append('rect')
           .attr('x', d.x - boxWidth / 2)
@@ -253,19 +255,10 @@ function renderTree() {
           .attr('height', boxHeight)
           .attr('rx', 15)
           .attr('class', `argument-node ${nodeTypeClass}`)
-          .attr('fill', 'white')
+          .attr('fill', speakerColors.background || 'white')
           .attr('stroke', () => {
             if (isFocused) return 'red' // red border for focused node
-            switch (d.data.type) {
-              case 'thesis':
-                return '#28a745'
-              case 'pro':
-                return '#007bff'
-              case 'con':
-                return '#dc3545'
-              default:
-                return '#dee2e6'
-            }
+            return speakerColors.color || '#dee2e6'
           })
           .attr('stroke-width', isFocused ? 5 : 3)
           .style('filter', 'drop-shadow(0 4px 15px rgba(0,0,0,0.1))')
@@ -289,7 +282,7 @@ function renderTree() {
           .attr('text-anchor', 'end')
           .attr('font-size', '12px')
           .attr('font-weight', '600')
-          .attr('fill', '#6c757d')
+          .attr('fill', speakerColors.color || '#6c757d')
           .text(d.data.speaker ? d.data.speaker : '')
 
         // Type (upper right)
@@ -484,26 +477,13 @@ function renderTree() {
         }
       } else {
         // Draw normal circle for non-focused tree
+        const circleColors = getSpeakerColors(d.data && d.data.speaker ? d.data.speaker : '')
         group
           .append('circle')
           .attr('cx', d.x)
           .attr('cy', d.y)
           .attr('r', 20)
-          .attr('fill', () => {
-            const type = d.data.speaker
-            switch (type) {
-              case 'OG':
-                return '#ea5c2d'
-              case 'CG':
-                return '#ff7f3f'
-              case 'CO':
-                return '#95cd41'
-              case 'OO':
-                return '#007f4e'
-              default:
-                return '#69b3a2'
-            }
-          })
+          .attr('fill', circleColors.color || '#69b3a2')
           .attr('stroke', (d) => {
             if (focusedNodeId.value && d.data.id === focusedNodeId.value) return '#1976d2'
             return '#333'

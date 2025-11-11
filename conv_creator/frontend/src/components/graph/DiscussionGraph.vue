@@ -216,7 +216,6 @@ watch(
 .graph-container {
   background: white;
   border-radius: 8px;
-  padding: 20px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   position: relative;
   overflow: auto;
@@ -231,13 +230,6 @@ watch(
   background: transparent;
   box-shadow: none;
   padding: 0;
-}
-
-/* When a right-side fixed panel is present we add extra right padding so content doesn't hide underneath it */
-.graph-container.has-right-panel {
-  /* Add extra right padding so the content doesn't hide underneath the fixed right panel. */
-  /* Keep some breathing room for larger panel widths on collapse. */
-  padding-right: 110px;
 }
 
 /* Right-side fixed vertical panel: full height of the graph card, fixed (not scrollable) */
@@ -456,7 +448,7 @@ watch(
 
 @media (max-width: 480px) {
   .graph-section {
-    padding: 10px;
+    padding: 0px;
   }
 
   .graph-container {

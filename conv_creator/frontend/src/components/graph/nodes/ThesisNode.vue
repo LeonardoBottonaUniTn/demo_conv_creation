@@ -1,5 +1,5 @@
 <template>
-  <div class="thesis-node" @click="handleClick">
+  <div class="thesis-node" @click="handleClick" :style="nodeStyle">
     <div class="node-header">
       <span class="node-id">{{ node.id }}</span>
       <span class="node-type">{{ node.id.toUpperCase() }}</span>
@@ -13,6 +13,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ArgumentNode } from '@/types/graph'
+import { getSpeakerColors } from '@/composables/useSpeakerColors'
 
 interface Props {
   node: ArgumentNode
@@ -38,6 +39,14 @@ const truncatedText = computed(() => {
 const handleClick = () => {
   emit('click', props.node)
 }
+
+const nodeStyle = computed(() => {
+  const c = getSpeakerColors(props.node?.speaker || '')
+  return {
+    background: c.background || 'linear-gradient(135deg, #2196f3, #1976d2)',
+    color: c.onBackground || 'white',
+  }
+})
 </script>
 
 <style scoped>

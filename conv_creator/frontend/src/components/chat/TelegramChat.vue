@@ -35,14 +35,35 @@
       >
         <div class="message-header">
           <div class="message-meta">
-            <span class="speaker">{{ message.speaker }}</span>
-            <span v-if="message.addressees && message.addressees.length > 0" class="addressees"
-              >→ {{ message.addressees.join(', ') }}</span
-            >
+            <span class="speaker" :style="{ color: getSpeakerColors(message.speaker).color }">{{
+              message.speaker
+            }}</span>
+            <span v-if="message.addressees && message.addressees.length > 0" class="addressees">
+              →
+              <template v-for="(a, ai) in message.addressees" :key="ai">
+                <span class="speaker" :style="{ color: getSpeakerColors(a).color }">
+                  {{ a }}
+                </span>
+                <span v-if="ai < message.addressees.length - 1">, </span>
+              </template>
+            </span>
           </div>
           <span class="turn">Turn {{ index + 1 }}</span>
         </div>
-        <div class="message-text">{{ message.text }}</div>
+        <div class="message-body">
+          <span
+            class="user-avatar"
+            :style="{
+              backgroundColor: getSpeakerColors(message.speaker).color,
+              color: getSpeakerColors(message.speaker).onAccent,
+            }"
+          >
+            {{ message.speaker.charAt(0).toUpperCase() }}
+          </span>
+          <span>
+            <div class="message-text">{{ message.text }}</div></span
+          >
+        </div>
       </div>
     </div>
 
@@ -75,7 +96,15 @@
         <h4>Users in this group</h4>
         <ul class="users-list">
           <li v-for="user in usersList" :key="user" class="user-item">
-            <span class="user-avatar">{{ user.charAt(0).toUpperCase() }}</span>
+            <span
+              class="user-avatar"
+              :style="{
+                backgroundColor: getSpeakerColors(user).color,
+                color: getSpeakerColors(user).onAccent,
+              }"
+            >
+              {{ user.charAt(0).toUpperCase() }}
+            </span>
             <span class="user-name">{{ user }}</span>
             <div class="user-input-row">
               <textarea
@@ -194,6 +223,7 @@ import ChatInput from './components/ChatInput.vue'
 import Modal from '../shared/Modal.vue'
 import { useUsers } from '../../composables/useUsers'
 import { useActiveFile } from '../../composables/useActiveFile'
+import { getSpeakerColors } from '@/composables/useSpeakerColors'
 
 const showSettingsModal = ref(false)
 const openSettings = () => {
@@ -1041,6 +1071,12 @@ defineExpose({
   opacity: 0.8;
 }
 
+.message-body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
 .message.own-message .message-header {
   flex-direction: row-reverse;
 }
@@ -1054,6 +1090,16 @@ defineExpose({
   font-style: italic;
   font-size: 12px;
   margin-left: 0;
+}
+
+.addressee-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  margin-left: 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
 }
 
 .message-meta {

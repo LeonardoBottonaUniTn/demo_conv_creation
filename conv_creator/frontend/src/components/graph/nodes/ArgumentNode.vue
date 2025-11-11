@@ -3,6 +3,7 @@
     :class="['argument-node', `node-${node.id}`, ...nodeClasses]"
     @click="handleNodeClick"
     :title="nodeTitle"
+    :style="nodeStyle"
   >
     <div class="node-header">
       <span class="node-id">{{ node.id }}</span>
@@ -21,6 +22,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ArgumentNode, AddToChatPayload } from '@/types/graph'
+import { getSpeakerColors } from '@/composables/useSpeakerColors'
 
 interface Props {
   node: ArgumentNode
@@ -53,6 +55,15 @@ const truncatedText = computed(() => {
   const { text } = props.node
   const { maxTextLength } = props
   return text.length > maxTextLength ? text.substring(0, maxTextLength) + '...' : text
+})
+
+const nodeStyle = computed(() => {
+  const c = getSpeakerColors(props.node?.speaker || '')
+  return {
+    background: c.background || 'white',
+    borderColor: c.color || '#dee2e6',
+    color: c.onBackground || '#111',
+  }
 })
 
 const handleNodeClick = () => {
