@@ -114,6 +114,10 @@ const handleUpdateInput = (value: string) => {
 const telegramChatRef = ref()
 const handleAddFromGraph = (messageData: any) => {
   chatInputValue.value = messageData.text
+  // Accept either `referenceId` (old shape) or `nodeId` (newer shape) emitted by graph
+  const refId =
+    messageData?.referenceId || messageData?.nodeId || (messageData?.node && messageData.node.id)
+
   // Try to find the node in the loaded discussion tree and use its speaker as speaker
   const findNodeById = (referenceId: string, node: any = discussionRoot.value): any | null => {
     if (!node) return null
@@ -129,7 +133,7 @@ const handleAddFromGraph = (messageData: any) => {
 
   let speakerToSet = thesisAuthor.value.name
   try {
-    const node = messageData.referenceId ? findNodeById(messageData.referenceId) : null
+    const node = refId ? findNodeById(refId) : null
     if (node && node.speaker) {
       speakerToSet = String(node.speaker)
       thesisAuthor.value.name = speakerToSet
@@ -144,7 +148,7 @@ const handleAddFromGraph = (messageData: any) => {
   }
   // Also set the referenceId in the chat so outgoing messages include the node id
   if (telegramChatRef.value && telegramChatRef.value.setReferenceId) {
-    telegramChatRef.value.setReferenceId(messageData.referenceId || null)
+    telegramChatRef.value.setReferenceId(refId || null)
   }
 }
 
