@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 // GraphControls removed — header controls not needed
 import Modal from '../shared/Modal.vue'
@@ -148,6 +148,27 @@ onMounted(() => {
   loadDiscussionData(fname)
 })
 
+// Prevent two-finger horizontal swipe from navigating back/forward while
+// the user is interacting with the graph. We listen for wheel events and
+// preventDefault when horizontal delta dominates, and also rely on
+// CSS `overscroll-behavior: none` to stop navigation on compatible browsers.
+onMounted(() => {
+  const el = graphContainer.value
+  if (!el) return
+  const wheelHandler = (ev: WheelEvent) => {
+    // If horizontal scrolling dominates, treat it as a gesture we want to
+    // consume inside the graph (prevents history navigation on many touchpads).
+    if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) && Math.abs(ev.deltaX) > 0) {
+      ev.preventDefault()
+    }
+  }
+  el.addEventListener('wheel', wheelHandler, { passive: false })
+
+  onBeforeUnmount(() => {
+    el.removeEventListener('wheel', wheelHandler)
+  })
+})
+
 // Reload when route query changes (select another file)
 watch(
   () => route.query.file,
@@ -201,6 +222,8 @@ watch(
   overflow: auto;
   flex: 1;
   min-height: 0;
+  /* Prevent overscroll navigation (two-finger back/forward) on supporting browsers */
+  overscroll-behavior: none;
 }
 
 /* Hide the graph container when collapsed - only show the dark panel */
