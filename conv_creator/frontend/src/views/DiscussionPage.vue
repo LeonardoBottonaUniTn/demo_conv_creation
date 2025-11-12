@@ -18,6 +18,8 @@ interface ChatMessage {
 const { loadUsers } = useUsers()
 const { loadDiscussionData, discussionRoot } = useGraphData()
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+
 const thesisAuthor = ref<{ name: string }>({ name: 'Thesis' })
 
 // Initialize messages empty; we'll place the thesis statement in the input for editing
@@ -27,6 +29,7 @@ const messages = ref<ChatMessage[]>([])
 const route = useRoute()
 const router = useRouter()
 const showFileSelector = ref(false)
+const isDraft = ref(false)
 
 // Determine the active file using route params first, then query string.
 const currentFile = computed(() => {
@@ -69,19 +72,61 @@ onMounted(async () => {
       if (firstNode && firstNode.text) {
         firstNodeText = String(firstNode.text)
         // set thesis author from the speaker if available
-        if (firstNode.speaker) thesisAuthor.value.name = String(firstNode.speaker)
+        if (!isDraft.value && firstNode.speaker) thesisAuthor.value.name = String(firstNode.speaker)
       }
     }
   } catch (e) {
     console.warn('loadDiscussionData failed in DiscussionPage onMounted', e)
   }
 
+  // If the loaded file is a draft (contains a `discussion` array), push those messages into the chat.
+  // We fetch the raw file JSON (backend returns the file content at /api/files/:filename).
+  try {
+    if (currentFile.value) {
+      const resp = await fetch(`${API_BASE}/api/files/${encodeURIComponent(currentFile.value)}`)
+      if (resp.ok) {
+        const raw = await resp.json()
+        if (raw && Array.isArray(raw.discussion) && raw.discussion.length > 0) {
+          // convert discussion entries into ChatMessage shape
+          isDraft.value = true
+          const conv = raw.discussion.map((d: any, i: number) => {
+            const speaker =
+              d.speaker || d.from || d.author || (d.node && d.node.speaker) || 'Unknown'
+            const text = d.text || d.body || d.content || (d.node && d.node.text) || ''
+            const referenceId = d.referenceId || d.node?.id || d.id || ''
+            const addressees = Array.isArray(d.addressees) ? d.addressees : d.to ? [d.to] : []
+            return {
+              id: i + 1,
+              referenceId: String(referenceId),
+              speaker: String(speaker),
+              text: String(text),
+              addressees,
+            }
+          })
+          // push messages into the chat (replace any existing messages)
+          messages.value = conv
+          // if we have at least one message, set thesis author to the first message speaker
+          if (conv.length > 0) thesisAuthor.value.name = conv[0].speaker || thesisAuthor.value.name
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load raw file for draft messages', e)
+  }
+
   // Fallback: if we couldn't retrieve a first node, leave the input empty so the user can type
-  chatInputValue.value = firstNodeText || ''
+  if (!isDraft.value) {
+    chatInputValue.value = firstNodeText || ''
+  } else {
+    chatInputValue.value = ''
+  }
 
   // After child mounts, set the speaker in the TelegramChat (if it exposes setSpeaker)
   await nextTick()
-  if (telegramChatRef.value && telegramChatRef.value.setSpeaker) {
+  // Only set the child component speaker programmatically when the file is a draft
+  // (draft loading above sets thesisAuthor). For regular discussion files we avoid
+  // forcing the speaker on open.
+  if (!isDraft.value && telegramChatRef.value && telegramChatRef.value.setSpeaker) {
     telegramChatRef.value.setSpeaker(thesisAuthor.value.name)
   }
 
@@ -134,7 +179,7 @@ const handleAddFromGraph = (messageData: any) => {
   let speakerToSet = thesisAuthor.value.name
   try {
     const node = refId ? findNodeById(refId) : null
-    if (node && node.speaker) {
+    if (node && node.speaker && !isDraft.value) {
       speakerToSet = String(node.speaker)
       thesisAuthor.value.name = speakerToSet
     }

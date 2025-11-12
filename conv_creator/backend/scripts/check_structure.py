@@ -1,173 +1,154 @@
 #!/usr/bin/env python3
 """
-Check that JSON files under backend/files_root share the same structure as
-the canonical `bp_130_0_d3.json`.
+Check that JSON files under backend/files_root are discussion tree files,
+draft files or are not correctly structured.
+
+JSON structures:
+1) discussion tree files must have top-level keys:
+    - 'users': list
+    - 'tree': object matching NODE_SCHEMA
+2) draft files must have top-level keys:
+    - 'fileRef': str
+    - 'users': list
+    - 'tree': object matching NODE_SCHEMA
+    - 'discussion': list of objects matching DISCUSSION_SCHEMA
+
+NODE_SCHEMA:
+{
+    "id": str,
+    "speaker": str,
+    "text": str,
+    "children": list of NODE_SCHEMA
+}
+
+DISCUSSION_SCHEMA:
+{
+    "id": number,
+    "referenceId": str,
+    "speaker": str,
+    "text": str,
+    "addressees": list of str
+}
 
 Usage:
   python3 check_structure.py [path/to/files_root]
 
 Exit codes:
-  0 - all files match structure
-  1 - one or more files differ / errors
+  0 - all files match discussion tree structure
+  1 - all files match draft structure
+  2 - one or more files differ structurally from the json structures we defined
 
 This script skips any file under a directory named `User` or with `user`/`users` in
 the filename (case-insensitive).
 """
 
+#!/usr/bin/env python3
 import json
 import sys
+import argparse
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict
 
 
-CANONICAL_NAME = 'bp_130_0_d3.json'
+def is_node_schema(obj: Any) -> bool:
+    """Recursively validate NODE_SCHEMA."""
+    if not isinstance(obj, dict):
+        return False
+    required_keys = {"id", "speaker", "text", "children"}
+    if set(obj.keys()) != required_keys:
+        return False
+    if not all(isinstance(obj[k], str) for k in ("id", "speaker", "text")):
+        return False
+    if not isinstance(obj["children"], list):
+        return False
+    return all(is_node_schema(child) for child in obj["children"])
 
-# canonical schema to validate against (node shape)
-# 'str' means a string is expected, 'list' means a list of nodes matching this schema
-NODE_SCHEMA = {
-    "id": "str",
-    "speaker": "str",
-    "text": "str",
-    "target_id": "str",  # optional, but if present must be str
-    "children": "list",
-}
+
+def is_discussion_schema(obj: Any) -> bool:
+    """Validate DISCUSSION_SCHEMA."""
+    if not isinstance(obj, dict):
+        return False
+    required_keys = {"id", "referenceId", "speaker", "text", "addressees"}
+    if set(obj.keys()) != required_keys:
+        return False
+    if not isinstance(obj["id"], (int, float)):
+        return False
+    if not all(isinstance(obj[k], str) for k in ("referenceId", "speaker", "text")):
+        return False
+    if not isinstance(obj["addressees"], list):
+        return False
+    if not all(isinstance(a, str) for a in obj["addressees"]):
+        return False
+    return True
 
 
-def load_json(path: Path) -> Any:
+def is_discussion_tree_file(data: Dict[str, Any]) -> bool:
+    return (
+        isinstance(data, dict)
+        and set(data.keys()) == {"users", "tree"}
+        and isinstance(data["users"], list)
+        and is_node_schema(data["tree"])
+    )
+
+
+def is_draft_file(data: Dict[str, Any]) -> bool:
+    return (
+        isinstance(data, dict)
+        and set(data.keys()) == {"fileRef", "users", "tree", "discussion"}
+        and isinstance(data["fileRef"], str)
+        and isinstance(data["users"], list)
+        and is_node_schema(data["tree"])
+        and isinstance(data["discussion"], list)
+        and all(is_discussion_schema(d) for d in data["discussion"])
+    )
+
+
+def should_skip(path: Path) -> bool:
+    """Skip files under directories named User or with 'user' in filename."""
+    parts = [p.lower() for p in path.parts]
+    if any(part == "user" for part in parts):
+        return True
+    if any("user" in part for part in parts):
+        return True
+    return False
+
+
+def check_file(json_file: Path) -> int:
+    """Return exit code per file."""
+    if should_skip(json_file):
+        return -1  # skipped file
+
     try:
-        return json.loads(path.read_text(encoding='utf-8'))
-    except FileNotFoundError:
-        raise
-    except json.JSONDecodeError as e:
-        raise
+        with open(json_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[ERROR] Could not read {json_file}: {e}")
+        return 2
 
-
-def is_primitive(obj: Any) -> bool:
-    return not isinstance(obj, (dict, list))
-
-
-def compare_structure(canonical: Any, other: Any, path: List[str]=None) -> List[str]:
-    """Validate `other` against the NODE_SCHEMA-style `canonical`.
-
-    canonical may be:
-      - dict with keys mapping to 'str' or 'list'
-      - the special marker 'str' meaning a string is expected
-      - the special marker 'list' meaning a list of nodes following NODE_SCHEMA
-    """
-    path = path or []
-    issues: List[str] = []
-
-    # canonical is the schema dict
-    if isinstance(canonical, dict):
-        if not isinstance(other, dict):
-            issues.append(f"Type mismatch at {'/'.join(path) or '<root>'}: expected object, found {type(other).__name__}")
-            return issues
-
-        # required keys from schema
-        for key, sten in canonical.items():
-            if key not in other:
-                issues.append(f"Missing key at {'/'.join(path + [key])}")
-                continue
-
-            val = other[key]
-            if sten == 'str':
-                if not isinstance(val, str):
-                    issues.append(f"Type mismatch at {'/'.join(path + [key])}: expected string, found {type(val).__name__}")
-            elif sten == 'list':
-                if not isinstance(val, list):
-                    issues.append(f"Type mismatch at {'/'.join(path + [key])}: expected list, found {type(val).__name__}")
-                else:
-                    # validate each child against NODE_SCHEMA
-                    for i, child in enumerate(val):
-                        issues += compare_structure(NODE_SCHEMA, child, path + [key, f'[{i}]'])
-            else:
-                issues.append(f"Unknown schema type for key {key}: {sten}")
-
-        # warn about extra keys but don't fail
-        extra = set(other.keys()) - set(canonical.keys())
-        if extra:
-            issues.append(f"Extra keys at {'/'.join(path) or '<root>'}: {sorted(list(extra))}")
-
-    elif canonical == 'str':
-        if not isinstance(other, str):
-            issues.append(f"Type mismatch at {'/'.join(path) or '<root>'}: expected string, found {type(other).__name__}")
-
-    elif canonical == 'list':
-        if not isinstance(other, list):
-            issues.append(f"Type mismatch at {'/'.join(path) or '<root>'}: expected list, found {type(other).__name__}")
-        else:
-            for i, child in enumerate(other):
-                issues += compare_structure(NODE_SCHEMA, child, path + [f'[{i}]'])
-
-    else:
-        issues.append(f"Unsupported canonical schema type at {'/'.join(path) or '<root>'}: {repr(canonical)}")
-
-    return issues
-
-
-def main(argv=None):
-    argv = argv or sys.argv[1:]
-    files_root = Path(argv[0]) if argv else Path(__file__).parent.parent / 'backend' / 'files_root'
-
-    # Expect top-level keys: 'users' (list) and 'tree' (object)
-    results: List[Tuple[Path, List[str]]] = []
-
-    for p in sorted(files_root.rglob('*.json')):
-        if p.name == CANONICAL_NAME:
-            continue
-        if any(part.lower() == 'user' for part in p.parts):
-            print(f"Skipping user file or folder: {p}")
-            continue
-        if 'user' in p.name.lower() or 'users' in p.name.lower():
-            print(f"Skipping user file: {p}")
-            continue
-
-        try:
-            data = load_json(p)
-        except FileNotFoundError:
-            results.append((p, ["File not found"]))
-            continue
-        except json.JSONDecodeError as e:
-            results.append((p, [f"Invalid JSON: {e}"]))
-            continue
-
-        issues = []
-        # Check top-level keys
-        if not isinstance(data, dict):
-            issues.append("Top-level JSON is not an object")
-        else:
-            if 'users' not in data:
-                issues.append("Missing top-level 'users' key")
-            elif not isinstance(data['users'], list):
-                issues.append("'users' key is not a list")
-            if 'tree' not in data:
-                issues.append("Missing top-level 'tree' key")
-            elif not isinstance(data['tree'], dict):
-                issues.append("'tree' key is not an object")
-            # Validate tree structure if present
-            if 'tree' in data and isinstance(data['tree'], dict):
-                issues += compare_structure(NODE_SCHEMA, data['tree'], path=['tree'])
-
-        results.append((p, issues))
-
-    any_errors = False
-    for path, issues in results:
-        if not issues:
-            print(f"OK: {path}")
-        else:
-            any_errors = True
-            print(f"\nISSUES in {path}:")
-            for it in issues:
-                print(f" - {it}")
-
-    if any_errors:
-        print("\nOne or more files differ structurally from the canonical JSON.")
+    if is_discussion_tree_file(data):
+        return 0
+    elif is_draft_file(data):
         return 1
+    else:
+        return 2
 
-    print("\nAll checked JSON files share the same top-level structure as the canonical file.")
-    return 0
+
+def main():
+    parser = argparse.ArgumentParser(description="Check structure of JSON files in files_root.")
+    parser.add_argument("files_root", type=Path, help="Path to files_root")
+    args = parser.parse_args()
+
+    json_files = list(args.files_root.rglob("*.json"))
+    if not json_files:
+        print("No JSON files found.")
+        return
+
+    for json_file in json_files:
+        code = check_file(json_file)
+        if code == -1:
+            continue  # skip
+        print(f"{json_file} → exit code {code}")
 
 
-if __name__ == '__main__':
-    code = main()
-    sys.exit(code)
+if __name__ == "__main__":
+    main()
