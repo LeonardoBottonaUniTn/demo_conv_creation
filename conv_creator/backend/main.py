@@ -7,7 +7,7 @@ import sys
 import json
 import sqlite3
 import shutil
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import logging
 from datetime import datetime
 
@@ -64,7 +64,8 @@ def _init_db() -> None:
                     uploadDate TEXT,
                     type TEXT,
                     path TEXT,
-                    structure_ok INTEGER
+                    structure_ok INTEGER,
+                    category TEXT
             )
             '''
         )
@@ -84,23 +85,24 @@ def _init_db() -> None:
                     uploadDate TEXT,
                     type TEXT,
                     path TEXT,
-                    structure_ok INTEGER
+                    structure_ok INTEGER,
+                    category TEXT
                 )
                 '''
             )
             # copy data from old files to new (if columns exist)
             # attempt multiple strategies to preserve existing columns; fall back safely
             try:
-                # try to copy structure_ok if it exists in old table
-                cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok) SELECT name, size, uploadDate, type, path, structure_ok FROM files")
+                # try to copy structure_ok and category if they exist in old table
+                cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, structure_ok, category FROM files")
             except Exception:
                 try:
-                    # copy data and set structure_ok default to NULL
-                    cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok) SELECT name, size, uploadDate, type, path, NULL FROM files")
+                    # copy data and set structure_ok/category default to NULL
+                    cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, NULL, NULL FROM files")
                 except Exception:
                     # fallback: copy only names (set others NULL)
                     try:
-                        cur.execute("INSERT INTO files_new(name, structure_ok) SELECT name, NULL FROM files")
+                        cur.execute("INSERT INTO files_new(name, structure_ok, category) SELECT name, NULL, NULL FROM files")
                     except Exception:
                         pass
             cur.execute("DROP TABLE files")
@@ -114,6 +116,12 @@ def _init_db() -> None:
                 except Exception:
                     # best-effort: if ALTER fails, leave table as-is; app will handle missing column errors elsewhere
                     pass
+            # ensure category column exists
+            if 'category' not in cols:
+                try:
+                    cur.execute("ALTER TABLE files ADD COLUMN category TEXT")
+                except Exception:
+                    pass
     conn.commit()
     conn.close()
 
@@ -126,25 +134,23 @@ def _upsert_file_record(path: str) -> dict:
     ftype = os.path.splitext(path)[1].lstrip('.').lower() or 'unknown'
     relpath = os.path.relpath(path, BACKEND_DIR)
 
-    # compute structure_ok for JSON files: 1 = ok, 0 = invalid, NULL = skipped (e.g., user files)
-    def _check_structure_file(full_path: str) -> Optional[int]:
-        # skip if not JSON
+    # classify JSON files and compute structure_ok for JSON files:
+    # struct_flag: 1 = valid tree/draft, 0 = invalid, None = skipped/non-json
+    # category: 'discussion' | 'draft' | 'invalid' | None
+    def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
         if not full_path.lower().endswith('.json'):
-            return None
-        # skip user files/folders
+            return None, None
         parts = os.path.normpath(full_path).split(os.sep)
-        if any(p.lower() == 'user' for p in parts):
-            return None
+        # do not skip user files here; upload should classify everything
         try:
             with open(full_path, 'r', encoding='utf-8') as fh:
                 data = json.load(fh)
         except Exception:
-            return 0
+            return 0, 'invalid'
 
         def valid_node(node: any) -> bool:
             if not isinstance(node, dict):
                 return False
-            # required keys
             for k in ('id', 'speaker', 'text', 'children'):
                 if k not in node:
                     return False
@@ -161,28 +167,43 @@ def _upsert_file_record(path: str) -> dict:
                     return False
             return True
 
-        if isinstance(data, list):
-            return 1 if all(valid_node(el) for el in data) else 0
-        else:
-            return 1 if valid_node(data) else 0
+        # detect draft: has fileRef, users, tree, discussion
+        if isinstance(data, dict) and all(k in data for k in ('fileRef', 'users', 'tree', 'discussion')):
+            # validate tree and discussion minimally
+            tree_ok = isinstance(data.get('tree'), dict) and (valid_node(data['tree']) if isinstance(data.get('tree'), dict) else False)
+            discussion_ok = isinstance(data.get('discussion'), list)
+            if tree_ok and discussion_ok:
+                return 1, 'draft'
+            return 0, 'invalid'
 
-    struct_flag = _check_structure_file(path)
+        # detect discussion tree file: top-level users + tree
+        if isinstance(data, dict) and all(k in data for k in ('users', 'tree')):
+            tree_ok = isinstance(data.get('tree'), dict) and (valid_node(data['tree']) if isinstance(data.get('tree'), dict) else False)
+            users_ok = isinstance(data.get('users'), list)
+            if tree_ok and users_ok:
+                return 1, 'discussion'
+            return 0, 'invalid'
+
+        # fallback: invalid
+        return 0, 'invalid'
+
+    struct_flag, category = _classify_file(path)
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO files(name, size, uploadDate, type, path, structure_ok) VALUES (?, ?, ?, ?, ?, ?)'
-        ' ON CONFLICT(name) DO UPDATE SET size=excluded.size, uploadDate=excluded.uploadDate, type=excluded.type, path=excluded.path, structure_ok=excluded.structure_ok',
-        (name, size, uploadDate, ftype, relpath, struct_flag),
+        'INSERT INTO files(name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)' 
+        ' ON CONFLICT(name) DO UPDATE SET size=excluded.size, uploadDate=excluded.uploadDate, type=excluded.type, path=excluded.path, structure_ok=excluded.structure_ok, category=excluded.category',
+        (name, size, uploadDate, ftype, relpath, struct_flag, category),
     )
     conn.commit()
     # fetch id and return full record
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok FROM files WHERE name = ?', (name,))
+    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files WHERE name = ?', (name,))
     row = cur.fetchone()
     conn.close()
     if row:
-        return {"id": row[0], "name": row[1], "size": row[2], "uploadDate": row[3], "type": row[4], "path": row[5], "structure_ok": row[6]}
-    return {"name": name, "size": size, "uploadDate": uploadDate, "type": ftype, "path": relpath}
+        return {"id": row[0], "name": row[1], "size": row[2], "uploadDate": row[3], "type": row[4], "path": row[5], "structure_ok": row[6], "category": row[7]}
+    return {"name": name, "size": size, "uploadDate": uploadDate, "type": ftype, "path": relpath, "category": category}
 
 
 def _delete_file_record(name: str) -> None:
@@ -196,11 +217,11 @@ def _delete_file_record(name: str) -> None:
 def _list_files_db() -> List[dict]:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok FROM files')
+    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files')
     rows = cur.fetchall()
     conn.close()
     return [
-        {"id": r[0], "name": r[1], "size": r[2], "uploadDate": r[3], "type": r[4], "path": r[5], "structure_ok": r[6]} for r in rows
+        {"id": r[0], "name": r[1], "size": r[2], "uploadDate": r[3], "type": r[4], "path": r[5], "structure_ok": r[6], "category": r[7]} for r in rows
     ]
 
 
@@ -1057,13 +1078,14 @@ async def apply_file_fix(file_id: int, request: Request):
         # Insert new file into DB
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("INSERT INTO files (name, size, uploadDate, type, path, structure_ok) VALUES (?, ?, ?, ?, ?, ?)", (
+        cur.execute("INSERT INTO files (name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)", (
             new_name,
             os.path.getsize(new_full_path),
             datetime.now().isoformat(),
             'json',
             f'files_root/{new_rel_path}',
-            1
+            1,
+            'discussion'
         ))
         conn.commit()
         new_file_id = cur.lastrowid

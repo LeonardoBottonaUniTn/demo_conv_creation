@@ -155,7 +155,7 @@
                 @dragstart="onDragStart(file, $event)"
                 @dragend="onDragEnd"
               >
-                <!-- Overlay banner in top-right for invalid (not-conformed) files -->
+                <!-- Overlay in top-right: show warning for invalid files, otherwise show category label when structure is OK -->
                 <div
                   class="structure-overlay"
                   v-if="file.structureOk === 0"
@@ -182,6 +182,33 @@
                     </svg>
                     <span>Structure warning</span>
                   </button>
+                </div>
+
+                <div
+                  class="structure-overlay"
+                  v-else-if="file.structureOk === 1"
+                  :title="
+                    file.category
+                      ? file.category === 'discussion'
+                        ? 'Discussion tree'
+                        : file.category === 'draft'
+                          ? 'Draft file'
+                          : file.category
+                      : 'Valid file'
+                  "
+                >
+                  <div
+                    class="category-badge"
+                    :class="file.category ? file.category.toLowerCase() : 'unknown'"
+                  >
+                    {{
+                      file.category === 'discussion'
+                        ? 'Discussion'
+                        : file.category === 'draft'
+                          ? 'Draft'
+                          : file.category || 'File'
+                    }}
+                  </div>
                 </div>
                 <div class="file-icon">
                   <svg
@@ -470,6 +497,7 @@ interface FileItem {
   path?: string
   content?: any
   structureOk?: number | null
+  category?: string | null
 }
 
 const files = ref<FileItem[]>([])
@@ -554,6 +582,7 @@ async function fetchFiles() {
         path: normalizedPath,
         content: null,
         structureOk: typeof f.structure_ok !== 'undefined' ? f.structure_ok : null,
+        category: typeof f.category !== 'undefined' ? f.category : null,
       }
     })
     // If we're at root, show only top-level files (those not living in subfolders).
@@ -639,6 +668,7 @@ const handleFiles = (fileList: File[]) => {
         path: data.file.path || data.file.name,
         content: null,
         structureOk: typeof data.file.structure_ok !== 'undefined' ? data.file.structure_ok : null,
+        category: typeof data.file.category !== 'undefined' ? data.file.category : null,
       })
     } catch (err) {
       alert('Upload failed: ' + String(err))
@@ -1185,6 +1215,30 @@ const formatDate = (date: Date) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* category badge shown for valid files: discussion (green) and draft (grey) */
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+.category-badge.discussion {
+  background: #2ecc71; /* green */
+  color: #013220;
+}
+.category-badge.draft {
+  background: #95a5a6; /* grey */
+  color: #ffffff;
+}
+.category-badge.unknown {
+  background: #95a5a6;
 }
 
 /* overlay badge for invalid files */
