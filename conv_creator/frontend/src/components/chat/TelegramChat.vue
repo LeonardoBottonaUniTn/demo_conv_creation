@@ -480,9 +480,9 @@ const handleSaveDraft = async () => {
   } catch (error) {}
   const payload = {
     fileRef: refFile,
-    users: Object.keys(descriptions).map((name) => ({
-      name,
-      description: descriptions[name],
+    users: Object.keys(descriptions).map((speaker) => ({
+      speaker,
+      description: descriptions[speaker],
     })),
     tree: fileContent.value ? fileContent.value.tree : null,
     discussion: [...props.messages],
