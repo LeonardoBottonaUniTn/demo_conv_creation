@@ -61,11 +61,14 @@ export function getSpeakerColors(name: string | null | undefined) {
     }
   }
 
-  // Palette exhausted: fall back to deterministic hashed index (may collide).
-  const fallbackIdx = preferred
-  console.warn('[useSpeakerColors] palette exhausted — assigning non-unique color for', n)
-  assignments.set(n, fallbackIdx)
-  return PALETTE[fallbackIdx]
+  // Palette exhausted: generate a new unique color and append to palette.
+  // This guarantees uniqueness at runtime by extending the palette.
+  const newIdx = PALETTE.length
+  const gen = generateAdditionalColor(newIdx)
+  PALETTE.push(gen)
+  assignments.set(n, newIdx)
+  usedIndices.add(newIdx)
+  return gen
 }
 
 // Utility to reset assignments (useful for tests or when loading a known set)
@@ -98,11 +101,69 @@ export function assignPaletteForList(names: string[]) {
         return
       }
     }
-    // if exhausted, assign preferred (may collide)
-    assignments.set(n, preferred)
-    result[n] = preferred
+    // if exhausted, generate and assign a new unique color
+    const newIdx = PALETTE.length
+    const gen = generateAdditionalColor(newIdx)
+    PALETTE.push(gen)
+    assignments.set(n, newIdx)
+    usedIndices.add(newIdx)
+    result[n] = newIdx
   })
   return result
+}
+
+// Generate an accent/background/onAccent/onBackground object for a new
+// palette entry. We use the item index to pick a hue spread using the
+// golden angle to avoid clustering. Returns same object shape as PALETTE
+function generateAdditionalColor(index: number) {
+  const goldenAngle = 137.50776405003785
+  const hue = (index * goldenAngle) % 360
+  const accent = hslToHex(hue, 65, 45) // saturated mid-light accent
+  const background = hslToHex(hue, 80, 96) // very light background
+  const onAccent = readableTextColor(accent)
+  const onBackground = '#0b0b0b'
+  return { color: accent, background, onAccent, onBackground }
+}
+
+// Convert HSL to hex color string. h in [0,360), s and l in [0,100]
+function hslToHex(h: number, s: number, l: number) {
+  s /= 100
+  l /= 100
+  const k = (n: number) => (n + h / 30) % 12
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => {
+    const val = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+    return Math.round(255 * val)
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+// Choose readable text color (black or white) for a given hex color
+function readableTextColor(hex: string) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return '#000000'
+  // relative luminance
+  const [r, g, b] = [rgb.r, rgb.g, rgb.b].map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  })
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  // contrast against white (lum=1) and black (lum=0)
+  const contrastWhite = 1.05 / (lum + 0.05)
+  const contrastBlack = (lum + 0.05) / 0.05
+  return contrastWhite >= contrastBlack ? '#ffffff' : '#000000'
+}
+
+function hexToRgb(hex: string) {
+  const m = hex.replace('#', '')
+  if (m.length !== 6) return null
+  return {
+    r: parseInt(m.substring(0, 2), 16),
+    g: parseInt(m.substring(2, 4), 16),
+    b: parseInt(m.substring(4, 6), 16),
+  }
 }
 
 export default function useSpeakerColors() {
