@@ -301,7 +301,14 @@ const resetHeight = () => {
 }
 
 const send = () => {
-  if (props.modelValue.trim().length > 0) {
+  // Only send when there's text, a selected speaker and at least one addressee.
+  // This prevents the Enter key from clearing the draft when addressees are empty.
+  if (
+    props.modelValue.trim().length > 0 &&
+    selectedSpeaker.value &&
+    Array.isArray(selectedAddressees.value) &&
+    selectedAddressees.value.length > 0
+  ) {
     emit('send')
     emit('update:modelValue', '')
     resetHeight()
@@ -312,6 +319,7 @@ const send = () => {
     emit('update:speaker', '')
     emit('update:addressees', [])
   }
+  // otherwise do nothing (keep typed text intact)
 }
 </script>
 
