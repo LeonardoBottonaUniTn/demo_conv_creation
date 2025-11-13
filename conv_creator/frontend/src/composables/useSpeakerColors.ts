@@ -7,11 +7,11 @@ const PALETTE = [
   { color: '#1E88E5', background: '#E3F2FD', onAccent: '#ffffff', onBackground: '#0b2540' }, // blue
   { color: '#43A047', background: '#E8F5E9', onAccent: '#ffffff', onBackground: '#062a10' }, // green
   { color: '#F4511E', background: '#FBE9E7', onAccent: '#ffffff', onBackground: '#3a1208' }, // red-orange
-  { color: '#8E24AA', background: '#F3E5F5', onAccent: '#ffffff', onBackground: '#2b0a2e' }, // purple
+  //{ color: '#8E24AA', background: '#F3E5F5', onAccent: '#ffffff', onBackground: '#2b0a2e' }, // purple
   { color: '#FB8C00', background: '#FFF3E0', onAccent: '#ffffff', onBackground: '#3a2300' }, // orange
-  { color: '#E53935', background: '#FFEBEE', onAccent: '#ffffff', onBackground: '#2f0a0a' }, // red
-  { color: '#00897B', background: '#E0F2F1', onAccent: '#ffffff', onBackground: '#042b27' }, // teal
-  { color: '#FFB300', background: '#FFF8E1', onAccent: '#ffffff', onBackground: '#3c2a00' }, // amber (black text on accent)
+  //{ color: '#E53935', background: '#FFEBEE', onAccent: '#ffffff', onBackground: '#2f0a0a' }, // red
+  //{ color: '#00897B', background: '#E0F2F1', onAccent: '#ffffff', onBackground: '#042b27' }, // teal
+  //{ color: '#FFB300', background: '#FFF8E1', onAccent: '#ffffff', onBackground: '#3c2a00' }, // amber (black text on accent)
 ]
 
 // Maintain a runtime mapping to ensure uniqueness of assignments while the
