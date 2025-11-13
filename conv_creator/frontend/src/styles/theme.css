@@ -1,0 +1,132 @@
+:root {
+  /* Colors */
+  --bg-100: #f5f7fa;
+  --bg-200: #c3cfe2;
+  --text-900: #2c3e50;
+  --text-700: #495057;
+  --muted: #556270;
+
+  --primary: #3498db;
+  --primary-dark: #2980b9;
+  --danger: #e74c3c;
+  --danger-dark: #c0392b;
+  --surface: #ffffff;
+  --surface-2: #ecf0f1;
+
+  --radius-md: 12px;
+  --radius-pill: 50px;
+  --shadow-sm: 0 6px 16px rgba(33, 37, 41, 0.04);
+  --shadow-md: 0 12px 30px rgba(33, 37, 41, 0.06);
+}
+
+/* Global button styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary,
+.btn-primary:visited {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text-900);
+}
+.btn-secondary:hover {
+  background: #d5dbdb;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+.btn-danger:hover {
+  background: var(--danger-dark);
+}
+
+/* Aliases for backwards compatibility with existing classes */
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  cursor: pointer;
+  border: none;
+  background: var(--primary);
+  color: white;
+}
+.primary-button:hover {
+  background: var(--primary-dark);
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  cursor: pointer;
+  border: none;
+  background: var(--surface-2);
+  color: var(--text-900);
+}
+.secondary-button:hover {
+  background: #d5dbdb;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 0.65rem 1.25rem;
+  cursor: pointer;
+  border: none;
+  background: var(--danger);
+  color: white;
+}
+.danger-button:hover {
+  background: var(--danger-dark);
+}
+
+/* Card utility */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  border: 1px solid #e9ecef;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Utility focus state for keyboard users */
+.btn:focus,
+.clickable-card:focus {
+  outline: 3px solid rgba(52, 152, 219, 0.18);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
