@@ -419,9 +419,39 @@ def get_file(filename: str):
 
     Frontend can use this to preview JSON, download binaries, or receive a helpful message for pickle files.
     """
-    full = _safe_path(filename)
+    # First, try to resolve the filename as a path under FILES_ROOT
+    try:
+        full = _safe_path(filename)
+    except HTTPException:
+        # propagate safety errors
+        raise
+
+    # If the safe-resolved path doesn't exist, attempt to locate the file by name
+    # in the DB (files may live in subfolders created by the app and the UI may
+    # request them by filename only).
     if not os.path.exists(full):
-        raise HTTPException(status_code=404, detail="File not found")
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        # Try to find a DB entry where the stored name or path matches the requested value
+        cur.execute('SELECT path FROM files WHERE name = ? OR path = ?', (filename, filename))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            relpath = row[0]
+            # Resolve a stored DB path robustly
+            try:
+                candidate = _resolve_stored_relpath(relpath)
+            except Exception:
+                candidate = None
+            # Ensure candidate is inside FILES_ROOT for safety and exists on disk
+            files_root_norm = os.path.normpath(FILES_ROOT)
+            if candidate and (candidate == files_root_norm or candidate.startswith(files_root_norm + os.sep)) and os.path.exists(candidate):
+                full = candidate
+            else:
+                # no DB match or file missing
+                raise HTTPException(status_code=404, detail="File not found")
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
 
     ext = os.path.splitext(filename)[1].lower()
     if ext == '.json':
