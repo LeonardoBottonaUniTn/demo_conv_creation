@@ -10,6 +10,7 @@
 </template>
 
 <style>
+@import './styles/theme.css';
 html,
 body {
   height: 100%;
