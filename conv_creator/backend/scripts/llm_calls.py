@@ -365,4 +365,185 @@ def generate_user_bio(existing_bio: str, chat_messages: List[str], *, model: str
             raise
 
 
+REWRITE_MESSAGE_SYSTEM = """Refine a user’s draft message to fit smoothly and authentically into the ongoing conversation, using the user description, chat history (messages, speakers, addressees), and parameters: temperament, style, and length. Revise the draft to align with the user’s typical communication and connect naturally to prior messages, preserving the user’s intent and making the conversation flow seamless.
+
+• Match the user’s style and preferences based on the description and prior messages.
+• Use temperament and style parameters to adjust tone, expressiveness, and word choice.
+• Decide whether interjections (e.g., “oh,” “hey,” “well”) are appropriate—include them if the user’s typical style or the conversation context is expressive, friendly, or emotional. Avoid when things are formal, technical, or clearly not expressive.
+• If used, choose interjections that fit the specified temperament, not just “informal” style, and place them naturally (not just at the start)—but don’t force or overdo them.
+• Adjust length as specified (short/medium/long), but don’t add unrelated ideas—stay based on the draft and conversation.
+• Enhance clarity, connection to previous turns, and coherence. Avoid meta-commentary or explanations.
+• Output should be only the polished, ready-to-send message.
+
+Input Format:
+1. User Description (text: style/preferences/background)
+2. Conversation History (list: message, speaker, addressee)
+3. Parameters:
+    • temperament (e.g., calm, assertive, enthusiastic)
+    • style (e.g., formal, informal, concise)
+    • length (e.g., short, medium, long)
+4. User’s Draft Message
+
+# Output Format
+
+Return just the final refined message, as a single paragraph or list as appropriate for the chat. No explanations or meta-notes.
+
+# Examples
+
+Example Input:
+1. User Description: "Jordan tends to be concise but direct, often using rhetorical questions, and dislikes small talk."
+2. Conversation History:
+[
+{ "message": "We should think through the potential risks before moving forward.", "speaker": "Casey", "addressee": "Jordan" },
+{ "message": "What specific risks are you referring to?", "speaker": "Jordan", "addressee": "Casey" },
+{ "message": "Mostly budget overruns and timeline delays.", "speaker": "Casey", "addressee": "Jordan" },
+{ "message": "Is there hard evidence those are likely?", "speaker": "Jordan", "addressee": "Casey" }
+]
+3. 
+{
+"temperament":"enthusiastic",
+"style":"informal",
+"length":"medium"
+}
+4. Draft: "I don’t think delays are inevitable, and aren’t we supposed to be adaptable anyway?"
+
+Example Output:
+Oh, I just can’t see delays as inevitable—wow, aren’t we supposed to be adaptable anyway? Hey, let’s focus on what we can actually control here!
+
+Example Input:
+1. User Description: "Kim writes formally and values precision; she avoids colloquialisms or exclamatory language."
+2. Conversation History:
+[
+{ "message": "What is our deadline for the final draft?", "speaker": "Kim", "addressee": "Alex" }
+]
+3. 
+{
+"temperament":"calm",
+"style":"formal",
+"length":"short"
+}
+4. Draft: "I think we should finish the draft by Friday, if that’s okay."
+
+Example Output:
+We should complete the draft by Friday, if that is acceptable.
+
+Example Input:
+1. User Description: "Ravi is positive and expressive, often showing encouragement in team chats."
+2. Conversation History:
+[
+{ "message": "I’m worried I’ll mess up the demo.", "speaker": "Alex", "addressee": "Ravi" },
+{ "message": "No worries! You’ll do great.", "speaker": "Ravi", "addressee": "Alex" }
+]
+3.
+{
+"temperament":"encouraging",
+"style":"neutral",
+"length":"short"
+}
+4. Draft: "You’re prepared and I’m sure you’ll do really well!"
+
+Example Output:
+Hey, you’re totally prepared—and I just know you’ll do really well!
+
+# Notes
+
+- Include interjections only if a user’s style/history, chat context, or temperament support them, not only for “informal” style.
+- Interjections must fit naturally; avoid them when the user or situation requires formality or restraint. Never overuse.
+- Every change must be grounded in the draft, the user’s stated preferences, or the conversation—don’t invent or speculate.
+- Return only the ready message, nothing else.
+- Prioritize flow, clarity, and fit to the conversation and user profile.
+
+# Reminder
+Deliver only the refined, ready-to-send message, incorporating interjections and style adjustments as appropriate based on user temperament and context—not just the “style” setting.
+
+"""
+
+
+def generate_message_rewrite(message_obj: Dict[str, Any], speaker_profile: Dict[str, Any] = None, messages_in_chat: List[str] = None, *, temperament: str = None, style: str = None, length: str = None, model: str = "meta-llama/llama-4-maverick-17b-128e-instruct", temperature: float = 0.7, max_completion_tokens: int = 512) -> str:
+    """
+    Rewrite a single chat message using the LLM while preserving meaning.
+
+    Args:
+        message_obj: dict with keys like 'speaker', 'text', optionally 'addressees' and 'referenceId'.
+        tree_user_messages: optional list of other messages from the same speaker extracted from the tree.
+        messages_in_chat: optional list of all messages in the chat (strings) for wider context.
+
+    Returns:
+        The rewritten message as a string. Raises Exception on LLM/API errors.
+    """
+    if not client:
+        raise ValueError("Groq client not initialized. Check GROQ_API_KEY in the environment.")
+
+    # Normalize inputs
+    orig_text = ''
+    try:
+        orig_text = str(message_obj.get('text', ''))
+    except Exception:
+        orig_text = str(message_obj)
+
+
+    # Build contextual prompt
+    context_parts = []
+    if speaker_profile:
+        context_parts.append(f"1. User Description: \"{speaker_profile.get('description', 'No description available.')}\"")
+    if messages_in_chat:
+        # include a short excerpt only if provided
+        try:
+            recent = messages_in_chat[-10:]
+        except Exception:
+            recent = messages_in_chat
+        context_parts.append("2. Conversation History:\n" + json.dumps(recent, ensure_ascii=False, indent=2))
+
+
+    # If the caller provided guidance for temperament/style/length, add it as a map of instructions
+    guidance_instructions = {}
+    if temperament:
+        guidance_instructions['temperament'] = temperament
+    if style:
+        guidance_instructions['style'] = style
+    if length:      
+        guidance_instructions['length'] = length
+
+    guidance_text = json.dumps(guidance_instructions, ensure_ascii=False) if guidance_instructions else ""
+    context_parts.append(f"3. \n{guidance_text}")
+    context_parts.append(f"4.User’s Draft Message: \"{orig_text}\"")
+
+    user_prompt = "# Input\n" + "\n".join(context_parts) + "\n\n# Output"
+    
+    print("User prompt for message rewrite:", user_prompt)
+
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": REWRITE_MESSAGE_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+            top_p=0.9,
+            stream=False,
+            stop=None,
+            seed=42,
+        )
+
+        out = completion.choices[0].message.content.strip()
+        # Attempt to extract a clean single-line/paragraph reply (strip surrounding quotes)
+        out = out.strip('"\n ')
+        print("Rewritten message:", out)
+        return out
+
+    except Exception as e:
+        err = str(e)
+        print(f"❌ generate_message_rewrite failed: {err}", file=sys.stderr)
+        if "authentication" in err.lower() or "api key" in err.lower():
+            raise Exception("Authentication failed. Please check your GROQ_API_KEY in the .env file.")
+        elif "rate limit" in err.lower():
+            raise Exception("Rate limit exceeded. Please try again later.")
+        elif "connection" in err.lower() or "network" in err.lower():
+            raise Exception("Network error. Please check your internet connection.")
+        else:
+            raise
+
+
 

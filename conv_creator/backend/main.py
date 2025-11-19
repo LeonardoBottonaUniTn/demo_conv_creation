@@ -17,7 +17,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 # Now we can import from scripts
-from scripts.llm_calls import transform_discussion_json, generate_user_bio
+from scripts.llm_calls import transform_discussion_json, generate_user_bio, generate_message_rewrite
 
 # FastAPI app
 app = FastAPI()
@@ -973,6 +973,64 @@ async def api_generate_bio(request: Request):
         raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
 
     return JSONResponse({"success": True, "bio": bio})
+
+
+@app.post('/api/llm/rewrite-message')
+async def api_rewrite_message(request: Request):
+    """Rewrite a single chat message using the LLM.
+
+    Expects a JSON body with:
+      - messageToRewrite: object with at least `text` (and optionally `speaker`, `addressees`)
+      - treeUserMessages: optional list of strings (other messages by same speaker)
+      - messagesInTheChat: optional list of strings for wider context
+
+    Returns JSON: { success: True, rewritten: <string> }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    message = body.get('messageToRewrite') or body.get('message') or None
+    speaker_profile = body.get('speakerProfile') or None
+    chat_msgs = body.get('messagesInTheChat') or body.get('messages') or None
+    # Optional rewriting parameters
+    temperament = body.get('temperament') or None
+    style = body.get('style') or None
+    length = body.get('length') or None
+
+    if message is None or not isinstance(message, dict):
+        raise HTTPException(status_code=400, detail="'messageToRewrite' must be provided as an object with a 'text' field")
+
+    text = message.get('text')
+    if text is None or not isinstance(text, str):
+        raise HTTPException(status_code=400, detail="message.text must be a string")
+
+    # Validate optional arrays
+    if speaker_profile is not None and not isinstance(speaker_profile, dict):
+        raise HTTPException(status_code=400, detail="speakerProfile must be an object if provided")
+    if chat_msgs is not None and not isinstance(chat_msgs, list):
+        raise HTTPException(status_code=400, detail="messagesInTheChat must be a list of strings if provided")
+
+    try:
+        rewritten = generate_message_rewrite(
+            message,
+            speaker_profile=speaker_profile,
+            messages_in_chat=chat_msgs,
+            temperament=temperament,
+            style=style,
+            length=length,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        # treat upstream LLM errors as 502
+        raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
+
+    return JSONResponse({"success": True, "rewritten": rewritten})
 
 
 @app.post("/api/files/fix/{file_id}/preview")
