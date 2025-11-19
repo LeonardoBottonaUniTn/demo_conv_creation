@@ -1025,7 +1025,9 @@ const useSelectedFiles = () => {
   const firstId = selectedFiles.value[0]
   const file = files.value.find((f) => f.id === firstId)
   if (file) {
-    router.push({ path: '/discussion', query: { file: file.name } })
+    // Use the stored relative path (under files_root) so the discussion
+    // page can load files that live inside folders (e.g. 'gigio/filename.json')
+    router.push({ path: '/discussion', query: { file: file.path || file.name } })
   } else {
     router.push('/discussion')
   }
