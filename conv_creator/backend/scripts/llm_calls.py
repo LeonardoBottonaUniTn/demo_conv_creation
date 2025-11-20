@@ -392,7 +392,11 @@ Other Instructions:
     - stylistic elements (interjections, politeness markers).
     - connecting phrases to the previous context.
     - DO NOT invent new reasons or examples.
-• VARIETY: Do not blindly copy the sentence structure or formatting of the immediately preceding messages. Ensure the response feels organic and not repetitive of the conversation's recent structural patterns.
+• VARIETY & ANTI-PATTERN: 
+    - DO NOT mimic the sentence structure, starting words, or formatting of the immediately preceding messages. 
+    - If one of the previous messages started or finished with a structure, is PROHIBITED to mimic that structure (i.e. with a "Oh my goodness", DO NOT start yours with "Oh my goodness".)
+    - If the previous message was a list, DO NOT make yours a list unless necessary.
+    - Ensure the response feels organic and distinct from the immediate conversation history.
 
 FINAL CHECK:
 - Did you add new arguments? -> DELETE THEM.
