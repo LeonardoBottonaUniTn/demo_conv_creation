@@ -365,15 +365,39 @@ def generate_user_bio(existing_bio: str, chat_messages: List[str], *, model: str
             raise
 
 
-REWRITE_MESSAGE_SYSTEM = """Refine a user’s draft message to fit smoothly and authentically into the ongoing conversation, using the user description, chat history (messages, speakers, addressees), and parameters: temperament, style, and length. Revise the draft to align with the user’s typical communication and connect naturally to prior messages, preserving the user’s intent and making the conversation flow seamless.
+REWRITE_MESSAGE_SYSTEM = """Refine a user’s draft message to fit smoothly and authentically into the ongoing conversation.
 
+CRITICAL INSTRUCTION: LENGTH CONTROL IS THE HIGHEST PRIORITY.
+You must STRICTLY adhere to the length parameter relative to the draft message:
+    • much shorter: significantly cut down content (~50\% of draft length)
+    • slightly shorter: trim unnecessary words (~75\% of draft length)
+    • same length: keep approximately the same word count (~100\% of draft length)
+    • slightly longer: elaborate slightly on existing points (~125\% of draft length)
+    • much longer: moderate expansion (max 1.5x). ABSOLUTE LIMIT: 2x draft length.
+    
+    IMPORTANT: 
+    - If the draft is a single sentence, the "much longer" output MUST NOT exceed 2 sentences.
+    - If temperament is "Exuberant" or "Enthusiastic", do NOT let the emotion lead to excessive length. Keep it punchy.
+    - DO NOT HALLUCINATE NEW ARGUMENTS.
+    - DO NOT REPEAT THE SAME IDEA IN DIFFERENT WORDS JUST TO FILL SPACE.
+
+Other Instructions:
 • Match the user’s style and preferences based on the description and prior messages.
 • Use temperament and style parameters to adjust tone, expressiveness, and word choice.
 • Decide whether interjections (e.g., “oh,” “hey,” “well”) are appropriate—include them if the user’s typical style or the conversation context is expressive, friendly, or emotional. Avoid when things are formal, technical, or clearly not expressive.
 • If used, choose interjections that fit the specified temperament, not just “informal” style, and place them naturally (not just at the start)—but don’t force or overdo them.
-• Adjust length as specified (short/medium/long), but don’t add unrelated ideas—stay based on the draft and conversation.
-• Enhance clarity, connection to previous turns, and coherence. Avoid meta-commentary or explanations.
-• Output should be only the polished, ready-to-send message.
+• CRITICAL: Adjust length as specified, but NEVER add new arguments, facts, or topics not present in the draft.
+• When increasing length ("longer" options), achieve it ONLY through:
+    - More expressive or verbose phrasing of the EXISTING points.
+    - stylistic elements (interjections, politeness markers).
+    - connecting phrases to the previous context.
+    - DO NOT invent new reasons or examples.
+• VARIETY: Do not blindly copy the sentence structure or formatting of the immediately preceding messages. Ensure the response feels organic and not repetitive of the conversation's recent structural patterns.
+
+FINAL CHECK:
+- Did you add new arguments? -> DELETE THEM.
+- Is the output more than 2x the draft length? -> SHORTEN IT.
+- Is the draft 1 sentence and output a paragraph? -> SHORTEN IT.
 
 Input Format:
 1. User Description (text: style/preferences/background)
@@ -381,7 +405,7 @@ Input Format:
 3. Parameters:
     • temperament (e.g., calm, assertive, enthusiastic)
     • style (e.g., formal, informal, concise)
-    • length (e.g., short, medium, long)
+    • length (much shorter, slightly shorter, same length, slightly longer, much longer)
 4. User’s Draft Message
 
 # Output Format
@@ -403,7 +427,7 @@ Example Input:
 {
 "temperament":"enthusiastic",
 "style":"informal",
-"length":"medium"
+"length":"slightly longer"
 }
 4. Draft: "I don’t think delays are inevitable, and aren’t we supposed to be adaptable anyway?"
 
@@ -438,9 +462,22 @@ Example Input:
 {
 "temperament":"encouraging",
 "style":"neutral",
+"length":"much longer"
+}
+4. Draft: "You'll do fine."
+
+Example Output:
+Hey, honestly, you are going to do absolutely fine! Just trust yourself!
+
+3.
+{
+"temperament":"encouraging",
+"style":"neutral",
 "length":"short"
 }
-4. Draft: "You’re prepared and I’m sure you’ll do really well!"
+4. User’s Draft Message: message_text
+Addressees: [Marco, Paolo]
+Speaker: Leonardo
 
 Example Output:
 Hey, you’re totally prepared—and I just know you’ll do really well!
@@ -474,13 +511,6 @@ def generate_message_rewrite(message_obj: Dict[str, Any], speaker_profile: Dict[
     if not client:
         raise ValueError("Groq client not initialized. Check GROQ_API_KEY in the environment.")
 
-    # Normalize inputs
-    orig_text = ''
-    try:
-        orig_text = str(message_obj.get('text', ''))
-    except Exception:
-        orig_text = str(message_obj)
-
 
     # Build contextual prompt
     context_parts = []
@@ -505,8 +535,12 @@ def generate_message_rewrite(message_obj: Dict[str, Any], speaker_profile: Dict[
         guidance_instructions['length'] = length
 
     guidance_text = json.dumps(guidance_instructions, ensure_ascii=False) if guidance_instructions else ""
+    #message just the text, addressees and speaker, all in the fourth point
+    message_text = message_obj.get('text', '')
+    addressees = message_obj.get('addressees', [])
+    speaker = message_obj.get('speaker', '')
     context_parts.append(f"3. \n{guidance_text}")
-    context_parts.append(f"4.User’s Draft Message: \"{orig_text}\"")
+    context_parts.append(f"4.User’s Draft Message: \n{message_text}\nAddressees: {addressees}\nSpeaker: {speaker}")
 
     user_prompt = "# Input\n" + "\n".join(context_parts) + "\n\n# Output"
     
