@@ -379,7 +379,7 @@ def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
 
 
 @app.get('/api/files/id/{file_id}')
-def get_file_by_id(file_id: int):
+def get_file_by_id(file_id: int, download: bool = False):
     """Return file metadata or JSON content when targeting by numeric id."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -400,6 +400,10 @@ def get_file_by_id(file_id: int):
     if not os.path.exists(full):
         logger.error(f"get_file_by_id: resolved full path does not exist: {full}")
         raise HTTPException(status_code=404, detail='File not found')
+    
+    if download:
+        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
+
     ext = os.path.splitext(full)[1].lower()
     if ext == '.json':
         with open(full, 'r', encoding='utf-8') as f:
@@ -414,7 +418,7 @@ def get_file_by_id(file_id: int):
 
 
 @app.get("/api/files/{filename:path}")
-def get_file(filename: str):
+def get_file(filename: str, download: bool = False):
     """Return file content for JSON files, a message for PKL, otherwise provide a download.
 
     Frontend can use this to preview JSON, download binaries, or receive a helpful message for pickle files.
@@ -452,6 +456,9 @@ def get_file(filename: str):
                 raise HTTPException(status_code=404, detail="File not found")
         else:
             raise HTTPException(status_code=404, detail="File not found")
+
+    if download:
+        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
 
     ext = os.path.splitext(filename)[1].lower()
     if ext == '.json':

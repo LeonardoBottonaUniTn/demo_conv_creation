@@ -245,30 +245,18 @@
                   </p>
                 </div>
                 <div class="file-actions">
+                  <button class="action-button" @click.stop="useFile(file)" title="Use in Discussion">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                    </svg>
+                  </button>
                   <button class="action-button" @click.stop="previewFile(file)" title="Preview">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
                   </button>
-                  <button class="action-button" @click.stop="downloadFile(file)" title="Download">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7,10 12,15 17,10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </button>
-                  <button
-                    class="action-button delete"
-                    @click.stop="deleteFile(file.id)"
-                    title="Delete"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M3 6h18" />
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                    </svg>
-                  </button>
+
                 </div>
               </div>
             </template>
@@ -292,7 +280,8 @@
         </div>
         <div class="bulk-buttons">
           <button class="secondary-button" @click="clearSelection">Clear Selection</button>
-          <button class="primary-button" @click="useSelectedFiles">Use in Discussion</button>
+
+          <button class="secondary-button" @click="downloadSelectedFiles">Download</button>
           <button class="secondary-button" @click="openMoveModalForSelected">Move</button>
           <button class="danger-button" @click="deleteSelectedFiles">Delete Selected</button>
         </div>
@@ -723,12 +712,13 @@ function getFileApiUrl(file: FileItem, action: 'get' | 'delete' | 'download' = '
   // if id looks numeric, prefer id-based route
   const idStr = String(file.id ?? '')
   const isNumericId = /^[0-9]+$/.test(idStr)
+  const query = action === 'download' ? '?download=true' : ''
   if (isNumericId) {
     // for get/download we reuse the same id endpoint; delete has its own id route too
-    return `${API_BASE}/api/files/id/${idStr}`
+    return `${API_BASE}/api/files/id/${idStr}${query}`
   }
   const path = file.path || file.name
-  return `${API_BASE}/api/files/${encodeURIComponent(path)}`
+  return `${API_BASE}/api/files/${encodeURIComponent(path)}${query}`
 }
 
 // Client-side structure checker (mirrors backend rules) — returns array of issue messages
@@ -907,6 +897,15 @@ const downloadFile = (file: FileItem) => {
   window.open(url, '_blank')
 }
 
+const downloadSelectedFiles = () => {
+  selectedFiles.value.forEach((id) => {
+    const file = files.value.find((f) => f.id === id)
+    if (file) {
+      downloadFile(file)
+    }
+  })
+}
+
 const deleteFile = (fileId: string) => {
   if (confirm('Are you sure you want to delete this file?')) {
     const file = files.value.find((f) => f.id === fileId)
@@ -1016,21 +1015,8 @@ const onCreateSubfolder = async (folderName: string) => {
   }
 }
 
-const useSelectedFiles = () => {
-  // Navigate to discussion page with selected files (pass first selected file name as query)
-  if (selectedFiles.value.length === 0) {
-    router.push('/discussion')
-    return
-  }
-  const firstId = selectedFiles.value[0]
-  const file = files.value.find((f) => f.id === firstId)
-  if (file) {
-    // Use the stored relative path (under files_root) so the discussion
-    // page can load files that live inside folders (e.g. 'gigio/filename.json')
-    router.push({ path: '/discussion', query: { file: file.path || file.name } })
-  } else {
-    router.push('/discussion')
-  }
+const useFile = (file: FileItem) => {
+  router.push({ path: '/discussion', query: { file: file.path || file.name } })
 }
 
 // Move modal state and functions
