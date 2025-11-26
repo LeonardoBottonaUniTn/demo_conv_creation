@@ -3,65 +3,35 @@
     <!-- Speaker select buttons and chips stacked vertically -->
     <div class="speaker-column">
       <div class="speaker-chip-wrapper left-speaker">
-        <div class="speaker-select-wrapper" @click="toggleDropdown">
-          <button class="speaker-btn">
-            <span class="speaker-icon">👤</span>
-            <span class="dropdown-arrow">▼</span>
-          </button>
-          <ul v-if="dropdownOpen" class="speaker-dropdown">
-            <li v-for="user in users" :key="user.speaker" @click.stop="selectSpeaker(user.speaker)">
-              {{ user.speaker }}
-            </li>
-          </ul>
-        </div>
-        <div v-if="selectedSpeaker" class="speaker-chip">
-          <span class="chip-label">{{ selectedSpeaker }}</span>
-          <button class="chip-remove-btn" @click.stop="removeSpeaker" aria-label="Remove speaker">
-            &times;
-          </button>
-        </div>
-      </div>
-
-      <div class="speaker-chip-wrapper right-speaker">
-        <div
-          class="speaker-select-wrapper"
-          ref="addresseesDropdownRef"
-          @click="toggleAddresseesDropdown"
-        >
-          <button class="speaker-btn">
-            <span class="speaker-icon">➡️</span>
-            <span class="dropdown-arrow">▼</span>
-          </button>
-          <ul v-if="addresseesDropdownOpen" class="speaker-dropdown">
-            <li
-              v-for="user in users.filter((u) => u.speaker !== selectedSpeaker)"
-              :key="user.speaker"
-              @click.stop="toggleAddressee(user.speaker)"
-            >
-              <span
-                class="checkbox"
-                :class="{ checked: selectedAddressees.includes(user.speaker) }"
-              >
-                {{ selectedAddressees.includes(user.speaker) ? '✓' : '' }}
-              </span>
-              {{ user.speaker }}
-            </li>
-          </ul>
-        </div>
-        <div v-if="selectedAddressees.length > 0" class="addressees-chips">
-          <div
-            v-for="addresseee in selectedAddressees"
-            :key="addresseee"
-            class="speaker-chip addresseee-chip"
-          >
-            <span class="chip-label">{{ addresseee }}</span>
-            <button
-              class="chip-remove-btn"
-              @click.stop="removeAddressee(addresseee)"
-              aria-label="Remove addresseee"
-            >
-              &times;
-            </button>
+        <div class="speaker-select-wrapper">
+          <div class="dropdown-group">
+            <span><i class="pi pi-user" style="color: grey; font-size: 14px"></i></span>
+            <Dropdown
+              v-model="selectedSpeaker"
+              :options="users"
+              optionLabel="speaker"
+              optionValue="speaker"
+              placeholder="Select Speaker"
+              class="pv-dropdown"
+              @change="onSpeakerChange"
+            ></Dropdown>
+          </div>
+          <span><i class="pi pi-arrow-right" style="color: lightgray"></i></span>
+          <div class="dropdown-group">
+            <span><i class="pi pi-users" style="color: grey; font-size: 14px"></i></span>
+            <MultiSelect
+              v-model="selectedAddressees"
+              :options="users.filter((u) => u.speaker !== selectedSpeaker)"
+              optionLabel="speaker"
+              optionValue="speaker"
+              placeholder="Select Addressees"
+              class="addressees-dropdown"
+              :multiple="false"
+              display="chip"
+              @update:modelValue="onAddresseesChange"
+              ><template p-multiselect-header>
+                <div class="my-custom-header" style="height: 0; overflow: hidden"></div> </template
+            ></MultiSelect>
           </div>
         </div>
       </div>
@@ -97,6 +67,8 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUsers } from '../../../composables/useUsers'
+import Dropdown from 'primevue/dropdown'
+import MultiSelect from 'primevue/multiselect'
 
 const props = defineProps({
   modelValue: {
@@ -119,16 +91,13 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'send', 'update:speaker', 'update:addressees'])
 const textarea = ref(null)
-const addresseesDropdownRef = ref(null)
 
 // Speaker dropdown logic (left side)
 const users = ref([])
 const selectedSpeaker = ref('')
-const dropdownOpen = ref(false)
 
 // Addressees dropdown logic (right side)
 const selectedAddressees = ref([])
-const addresseesDropdownOpen = ref(false)
 
 onMounted(() => {
   // load users from backend via composable. The backend now requires an explicit
@@ -151,9 +120,6 @@ onMounted(() => {
     console.warn('[ChatInput] No discussion file in route; skipping loadUsers')
   }
 
-  // Add click-outside listener
-  document.addEventListener('click', handleClickOutside)
-
   // Initialize internal speaker from external prop if provided
   if (props.selectedSpeaker) {
     selectedSpeaker.value = props.selectedSpeaker
@@ -172,18 +138,6 @@ onMounted(() => {
   }
 })
 
-onUnmounted(() => {
-  // Remove click-outside listener
-  document.removeEventListener('click', handleClickOutside)
-})
-
-// Handle click outside dropdown
-const handleClickOutside = (event) => {
-  if (addresseesDropdownRef.value && !addresseesDropdownRef.value.contains(event.target)) {
-    addresseesDropdownOpen.value = false
-  }
-}
-
 // Watch for external changes to modelValue and trigger auto-resize
 watch(
   () => props.modelValue,
@@ -198,26 +152,19 @@ watch(
   },
 )
 
-const toggleDropdown = () => {
-  dropdownOpen.value = !dropdownOpen.value
-  // Close addressees dropdown when opening speaker dropdown
-  if (dropdownOpen.value) {
-    addresseesDropdownOpen.value = false
-  }
-}
-
-const selectSpeaker = (speaker) => {
-  selectedSpeaker.value = speaker
-  dropdownOpen.value = false
-
-  // Remove the speaker from addressees if they're already selected as an addresseee
-  const addresseeeIndex = selectedAddressees.value.indexOf(speaker)
-  if (addresseeeIndex > -1) {
-    selectedAddressees.value.splice(addresseeeIndex, 1)
+const onSpeakerChange = () => {
+  // Remove the speaker from addressees if they're already selected as an addressee
+  const addresseeIndex = selectedAddressees.value.indexOf(selectedSpeaker.value)
+  if (addresseeIndex > -1) {
+    selectedAddressees.value.splice(addresseeIndex, 1)
     emit('update:addressees', selectedAddressees.value)
   }
 
-  emit('update:speaker', speaker)
+  emit('update:speaker', selectedSpeaker.value)
+}
+
+const onAddresseesChange = () => {
+  emit('update:addressees', selectedAddressees.value)
 }
 
 // Watch for external selectedSpeaker changes and update internal state
@@ -246,28 +193,6 @@ watch(
 const removeSpeaker = () => {
   selectedSpeaker.value = ''
   emit('update:speaker', '')
-}
-
-// Addressees functions
-const toggleAddresseesDropdown = () => {
-  addresseesDropdownOpen.value = !addresseesDropdownOpen.value
-  // Close speaker dropdown when opening addressees dropdown
-  if (addresseesDropdownOpen.value) {
-    dropdownOpen.value = false
-  }
-}
-
-const toggleAddressee = (speaker) => {
-  const index = selectedAddressees.value.indexOf(speaker)
-  if (index > -1) {
-    // Remove if already selected
-    selectedAddressees.value.splice(index, 1)
-  } else {
-    // Add if not selected
-    selectedAddressees.value.push(speaker)
-  }
-  emit('update:addressees', selectedAddressees.value)
-  // Don't close dropdown to allow multiple selections
 }
 
 const removeAddressee = (speaker) => {
@@ -326,7 +251,6 @@ const send = () => {
 <style scoped>
 .chat-input-container {
   width: 100%;
-  max-width: 500px;
   margin: 0 auto;
   background: transparent;
   box-sizing: border-box;
@@ -491,58 +415,122 @@ button {
   cursor: not-allowed;
 }
 
-/* Speaker select styles */
+/* PrimeVue Dropdown Customization */
 .speaker-select-wrapper {
   position: relative;
+  align-items: center;
   margin-right: 8px;
   z-index: 20;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.speaker-btn {
+
+.dropdown-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Custom dropdown styling for speaker and addressees */
+:deep(.pv-dropdown) {
   background: #fff;
   color: #006ba3;
-  border-radius: 16px;
+  border-radius: 8px;
   border: 1px solid #006ba3;
-  padding: 0 10px;
   min-width: 40px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+:deep(.addressees-dropdown) {
+  background: #fff;
+  color: #006ba3;
+  border-radius: 8px;
+  border: 1px solid #006ba3;
+  min-width: 40px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+:deep(.pv-dropdown .p-dropdown-label) {
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: #006ba3;
+}
+
+:deep(.dropdown-value-content) {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 16px;
-  height: 32px;
-  cursor: pointer;
 }
-.speaker-icon {
+
+:deep(.dropdown-value-content i) {
   font-size: 18px;
+  color: #006ba3;
 }
-.dropdown-arrow {
-  font-size: 12px;
-}
-.speaker-dropdown {
-  position: absolute;
-  bottom: 110%; /* open upwards */
-  left: 0;
+
+/* Panel (dropdown list) styling */
+:deep(.p-dropdown-panel) {
   background: #fff;
   border: 1px solid #006ba3;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  z-index: 10;
-  min-width: 100%;
+  margin-top: 4px;
+}
+
+:deep(.p-dropdown-items) {
   padding: 4px 0;
-  list-style: none;
   max-height: 160px;
   overflow-y: auto;
 }
-.speaker-dropdown li {
+
+:deep(.p-dropdown-item) {
   padding: 4px 12px;
-  cursor: pointer;
   color: #006ba3;
   font-size: 15px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+:deep(.p-dropdown-item:hover),
+:deep(.p-dropdown-item.p-highlight) {
+  background: #e6f2fa;
+  color: #006ba3;
+}
+
+:deep(.p-dropdown-token) {
+  background: #e8f4f8;
+  color: #006ba3;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 14px;
   display: flex;
   align-items: center;
+  gap: 4px;
 }
-.speaker-dropdown li:hover {
-  background: #e6f2fa;
+
+:deep(.p-dropdown-token-icon) {
+  color: #006ba3;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Hide panel headers/filter/search for PrimeVue dropdowns and multiselects */
+:deep(.p-multiselect-panel .p-multiselect-header),
+:deep(.p-multiselect-panel .p-multiselect-filter-container),
+:deep(.p-multiselect-panel .p-multiselect-close),
+:deep(.p-dropdown-panel .p-dropdown-header),
+:deep(.p-dropdown-panel .p-dropdown-filter) {
+  display: none !important;
 }
 
 @media (max-width: 700px) {

@@ -4,21 +4,7 @@
     <div class="chat-header">
       <h3>{{ title }}</h3>
       <button class="settings-button" @click="openSettings" title="Settings">
-        <svg
-          width="22"
-          height="22"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09A1.65 1.65 0 0 0 11 3.09V3a2 2 0 1 1 4 0v.09c0 .66.39 1.26 1 1.51a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09c.66.39 1.26 1.09 1.51 1.82H21a2 2 0 1 1 0 4h-.09c-.22.63-.82 1.23-1.51 1.51z"
-          />
-        </svg>
+        <i class="pi pi-cog" style="font-size: 1.2rem"></i>
       </button>
     </div>
 
@@ -73,18 +59,7 @@
                 title="Move up"
                 aria-label="Move message up"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M6 15l6-6 6 6" />
-                </svg>
+                <i class="pi pi-arrow-up" style="font-size: 0.8rem"></i>
               </button>
               <button
                 class="arrow-btn"
@@ -93,18 +68,7 @@
                 title="Move down"
                 aria-label="Move message down"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
+                <i class="pi pi-arrow-down" style="font-size: 0.8rem"></i>
               </button>
             </div>
           </div>
@@ -118,23 +82,7 @@
                 :title="`Magic for ${message.speaker}`"
                 aria-label="Generate magic for this message"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M22 2l-6 6" />
-                  <path d="M16 8l-10 10" />
-                  <path d="M7 7l-1.5 1.5" />
-                  <path d="M3 13l1.5 1.5" />
-                  <circle cx="19" cy="5" r="1" />
-                </svg>
+                <i class="pi pi-bolt" style="font-size: 0.8rem"></i>
               </button>
             </div>
           </span>
@@ -198,21 +146,7 @@
               >
                 <template v-if="!generatingUsers[user]">
                   <!-- Inline magic-wand SVG to avoid external dependency -->
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M22 2l-6 6" />
-                    <path d="M16 8l-10 10" />
-                    <path d="M7 7l-1.5 1.5" />
-                    <path d="M3 13l1.5 1.5" />
-                    <circle cx="19" cy="5" r="1" />
-                  </svg>
+                  <i class="pi pi-bolt"></i>
                 </template>
                 <template v-else>
                   <span class="magic-loading">…</span>

@@ -43,11 +43,7 @@
             @dragleave.prevent="isDragOver = false"
           >
             <div class="upload-content">
-              <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7,10 12,15 17,10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
+              <i class="pi pi-upload upload-icon" style="font-size: 2rem"></i>
               <h3>Drop files here or click to upload</h3>
               <p>Supported formats: JSON, PKL, CSV</p>
               <button class="upload-button" @click="triggerFileSelect">Choose Files</button>
@@ -92,10 +88,7 @@
                 @drop.prevent="onDropOnFolder(f, $event)"
               >
                 <div class="file-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M3 7v10a2 2 0 0 0 2 2h14" />
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8" />
-                  </svg>
+                  <i class="pi pi-folder" style="font-size: 1.5rem"></i>
                 </div>
                 <div class="file-info">
                   <h4 class="file-name">{{ f || 'root' }}</h4>
@@ -108,11 +101,7 @@
                     :aria-expanded="menuOpenFor === f"
                     title="More"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <circle cx="5" cy="12" r="1.5" />
-                      <circle cx="12" cy="12" r="1.5" />
-                      <circle cx="19" cy="12" r="1.5" />
-                    </svg>
+                    <i class="pi pi-ellipsis-v"></i>
                   </button>
                   <div v-if="menuOpenFor === f" class="folder-menu" @click.stop>
                     <button class="menu-item" @click.stop="onCreateSubfolder(f)">
@@ -129,11 +118,7 @@
             <!-- When inside a folder, show an Add-file card matching files' look -->
             <div v-if="currentFolder" class="file-card add-card" @click="triggerFileSelect">
               <div class="file-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <circle cx="12" cy="12" r="9" />
-                  <line x1="12" y1="8" x2="12" y2="16" />
-                  <line x1="8" y1="12" x2="16" y2="12" />
-                </svg>
+                <i class="pi pi-plus" style="font-size: 1.5rem"></i>
               </div>
               <div class="file-info">
                 <h4 class="file-name">Add files</h4>
@@ -166,20 +151,7 @@
                     @click.stop.prevent="openStructureWarning(file)"
                     aria-label="Open structure warning"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="none"
-                      stroke="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                      ></path>
-                      <line x1="12" y1="9" x2="12" y2="13"></line>
-                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                    </svg>
+                    <i class="pi pi-exclamation-triangle" style="font-size: 1rem"></i>
                     <span>Structure warning</span>
                   </button>
                 </div>
@@ -211,30 +183,13 @@
                   </div>
                 </div>
                 <div class="file-icon">
-                  <svg
-                    v-if="file.type === 'json'"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14,2 14,8 20,8" />
-                    <path d="M10 12a2 2 0 0 0 2 2c1.02 0 2-.98 2-2s-.98-2-2-2-2 .98-2 2z" />
-                  </svg>
-                  <svg
+                  <i v-if="file.type === 'json'" class="pi pi-file" style="font-size: 1.5rem"></i>
+                  <i
                     v-else-if="file.type === 'pkl'"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14,2 14,8 20,8" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14,2 14,8 20,8" />
-                  </svg>
+                    class="pi pi-file-o"
+                    style="font-size: 1.5rem"
+                  ></i>
+                  <i v-else class="pi pi-file" style="font-size: 1.5rem"></i>
                 </div>
                 <div class="file-info">
                   <h4 class="file-name">{{ file.name }}</h4>
@@ -245,28 +200,23 @@
                   </p>
                 </div>
                 <div class="file-actions">
-                  <button class="action-button" @click.stop="useFile(file)" title="Use in Discussion">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                    </svg>
+                  <button
+                    class="action-button"
+                    @click.stop="useFile(file)"
+                    title="Use in Discussion"
+                  >
+                    <i class="pi pi-play"></i>
                   </button>
                   <button class="action-button" @click.stop="previewFile(file)" title="Preview">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
+                    <i class="pi pi-eye"></i>
                   </button>
-
                 </div>
               </div>
             </template>
 
             <!-- If nothing to show, render empty-state -->
             <div v-if="visibleFolders.length === 0 && files.length === 0" class="empty-state">
-              <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14,2 14,8 20,8" />
-              </svg>
+              <i class="pi pi-folder-open empty-icon" style="font-size: 3rem"></i>
               <h3>No files uploaded yet</h3>
               <p>Upload your first discussion file to get started</p>
             </div>
@@ -292,10 +242,7 @@
           <div class="modal-header">
             <h3>Move file(s)</h3>
             <button class="close-button" @click="closeMoveModal">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
+              <i class="pi pi-times"></i>
             </button>
           </div>
           <div class="modal-body">
@@ -328,10 +275,7 @@
         <div class="modal-header">
           <h3>{{ previewModal.file?.name }}</h3>
           <button class="close-button" @click="closePreview">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <i class="pi pi-times"></i>
           </button>
         </div>
         <div class="modal-body">
@@ -346,10 +290,7 @@
         <div class="modal-header">
           <h3>Structure issues — {{ warningModal.file?.name }}</h3>
           <button class="close-button" @click="closeWarning">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <i class="pi pi-times"></i>
           </button>
         </div>
         <div class="modal-body">
@@ -385,10 +326,7 @@
         <div class="modal-header">
           <h3>AI Suggested Fix — {{ fixPreviewModal.file?.name }}</h3>
           <button class="close-button" @click="closeFixPreview">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <i class="pi pi-times"></i>
           </button>
         </div>
         <div class="modal-body">
