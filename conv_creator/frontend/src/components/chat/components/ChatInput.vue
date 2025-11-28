@@ -100,25 +100,39 @@ const selectedSpeaker = ref('')
 const selectedAddressees = ref([])
 
 onMounted(() => {
-  // load users from backend via composable. The backend now requires an explicit
-  // discussion file path, so derive it from the current route (params or query).
   const route = useRoute()
   const fileParam = route?.params?.file || route?.query?.file || undefined
 
   const { loadUsers, availablePersonas } = useUsers()
-  if (fileParam) {
-    loadUsers(fileParam).then(() => {
-      users.value = availablePersonas.value.map((p) => ({ speaker: p.name, ...p }))
 
-      // If this is the first message, automatically select all users as addressees
-      if (props.isFirstMessage) {
-        selectedAddressees.value = users.value.map((user) => user.speaker)
-        emit('update:addressees', selectedAddressees.value)
+  // Keep `users` in sync with the shared `availablePersonas` (immediate to
+  // handle cases where DiscussionPage already loaded them before this
+  // component mounted).
+  watch(
+    availablePersonas,
+    (val) => {
+      if (val && val.length > 0) {
+        users.value = val.map((p) => ({ speaker: p.name, ...p }))
+
+        // If this is the first message, automatically select all users as addressees
+        if (props.isFirstMessage) {
+          selectedAddressees.value = users.value.map((user) => user.speaker)
+          emit('update:addressees', selectedAddressees.value)
+        }
       }
-    })
-  } else {
-    console.warn('[ChatInput] No discussion file in route; skipping loadUsers')
-  }
+    },
+    { immediate: true },
+  )
+
+  // If a file param is present, trigger an explicit load. Otherwise rely on
+  // the shared composable to be populated by the parent (DiscussionPage).
+  onMounted(() => {
+    if (fileParam) {
+      loadUsers(fileParam).catch((e) => console.warn('[ChatInput] loadUsers failed', e))
+    } else {
+      console.debug('[ChatInput] No discussion file in route; will listen for loaded personas')
+    }
+  })
 
   // Initialize internal speaker from external prop if provided
   if (props.selectedSpeaker) {

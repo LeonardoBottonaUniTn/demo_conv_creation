@@ -1,14 +1,16 @@
-import { ref, reactive } from 'vue'
+import { ref } from 'vue'
 import type { User } from '../types/chat'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
 
+// Module-level reactive state to make this composable behave like a
+// singleton store. This ensures every call to `useUsers()` returns the
+// same refs so different components share personas/availablePersonas.
+const personas = ref<User[]>([])
+const availablePersonas = ref<User[]>([])
+const currentPersona = ref<User | null>(null)
+
 export function useUsers() {
-  const personas = ref<User[]>([])
-
-  const availablePersonas = ref<User[]>([])
-  const currentPersona = ref<User | null>(null)
-
   const loadUsers = async (file: string) => {
     try {
       // preserve folder separators when sending a file path to the backend
@@ -28,9 +30,6 @@ export function useUsers() {
         name: user.speaker,
         description: user.description,
       }))
-
-      //TODO: test why is called so many times
-      //console.log('Loaded personas from backend:', personas.value)
 
       availablePersonas.value = personas.value.map((persona, index) => ({
         id: index + 2,
