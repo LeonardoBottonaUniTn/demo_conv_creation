@@ -239,10 +239,10 @@
             class="save-btn"
             :disabled="!isDirtyAny"
             :aria-disabled="!isDirtyAny"
-            @click="handleSaveDraft"
-            :title="isDirtyAny ? 'Save changes' : 'No changes to save'"
+            @click="handleExportChat"
+            :title="isDirtyAny ? 'Export chat' : 'No changes to export'"
           >
-            Export
+            Export chat
           </button>
           <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
         </div>
@@ -641,8 +641,44 @@ const handleSaveDraft = async () => {
   }
 
   lastPayload.value = payload
-  draftName.value = `${refFile || 'draft'}-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  const refFileName = refFile.split('.')[0] || 'discussion'
+  draftName.value = `${refFileName}-draft.json`
   showSaveModal.value = true
+}
+
+// Export chat locally as JSON (users + discussion only — no tree)
+const handleExportChat = () => {
+  try {
+    const payload = {
+      users: Object.keys(descriptions).map((speaker) => ({
+        speaker,
+        description: descriptions[speaker],
+      })),
+      discussion: (localMessages.value || []).map((m) => ({ ...m })),
+    }
+
+    const json = JSON.stringify(payload, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const desiredFileName = activeFile.value?.split('.')[0] || 'discussion'
+    const filename = `${desiredFileName}-export.json`
+
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+
+    // small feedback to user
+    saveMessage.value = 'Exported chat to local file'
+    setTimeout(() => (saveMessage.value = ''), 3000)
+  } catch (e) {
+    console.error('Export chat failed', e)
+    saveMessage.value = `Export failed: ${e instanceof Error ? e.message : String(e)}`
+    setTimeout(() => (saveMessage.value = ''), 5000)
+  }
 }
 
 // Keyboard shortcut and navigation protection when settings modal is open
