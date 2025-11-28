@@ -65,12 +65,18 @@ const fetchFiles = async () => {
     const res = await fetch(`${API_BASE}/api/files`)
     if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
     const list = await res.json()
-    files.value = list.map((f: any) => ({
-      id: String(f.id ?? Math.random().toString(36).substr(2, 9)),
-      name: f.name,
-      type: f.type,
-      size: f.size,
-    }))
+    files.value = list.map((f: any) => {
+      const rawPath = f.path || f.name
+      // normalize legacy stored paths that may include a leading 'files_root/' prefix
+      const normalized = String(rawPath).replace(/^files_root[\\/]/, '')
+      return {
+        id: String(f.id ?? Math.random().toString(36).substr(2, 9)),
+        name: f.name,
+        path: normalized,
+        type: f.type,
+        size: f.size,
+      }
+    })
   } catch (err: any) {
     console.error('Error loading files for selector:', err?.message ?? err)
     error.value = err?.message ?? String(err)
@@ -97,7 +103,7 @@ const select = (f: FileItem) => {
 
 const confirm = () => {
   const f = files.value.find((x) => x.id === selectedId.value)
-  if (f) emit('select', f.name)
+  if (f) emit('select', (f as any).path || f.name)
 }
 
 const close = () => {

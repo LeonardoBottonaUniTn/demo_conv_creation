@@ -656,7 +656,8 @@ function getFileApiUrl(file: FileItem, action: 'get' | 'delete' | 'download' = '
     return `${API_BASE}/api/files/id/${idStr}${query}`
   }
   const path = file.path || file.name
-  return `${API_BASE}/api/files/${encodeURIComponent(path)}${query}`
+  // encodeURI preserves '/' so nested paths are passed correctly to backend path params
+  return `${API_BASE}/api/files/${encodeURI(path)}${query}`
 }
 
 // Client-side structure checker (mirrors backend rules) — returns array of issue messages
@@ -916,7 +917,7 @@ const onDeleteFolder = async (folderName: string) => {
   const target = currentFolder.value ? currentFolder.value + '/' + folderName : folderName
   if (!confirm(`Delete folder '${target}' and all its contents? This cannot be undone.`)) return
   try {
-    const res = await fetch(`${API_BASE}/api/folders/${encodeURIComponent(target)}`, {
+    const res = await fetch(`${API_BASE}/api/folders/${encodeURI(target)}`, {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error('Delete failed')

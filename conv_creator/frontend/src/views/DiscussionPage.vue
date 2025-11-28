@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DiscussionGraph from '../components/graph/DiscussionGraph.vue'
 import TelegramChat from '../components/chat/TelegramChat.vue'
@@ -38,83 +38,82 @@ const currentFile = computed(() => {
   return p || q || undefined
 })
 
-// Load personas from backend and create the initial thesis message
-onMounted(async () => {
-  // Ensure users/personas are loaded so the thesis statement is valid
-  try {
-    if (currentFile.value) {
-      await loadUsers(currentFile.value)
-    }
-  } catch (e) {
-    // If loading fails, continue — we'll still try to get a thesis statement
-    // (keep app resilient to backend issues)
-    console.warn('loadUsers failed in DiscussionPage onMounted', e)
+// Reusable function to load a selected file (used on mount and when route changes)
+const loadSelectedFile = async (filename?: string | undefined) => {
+  // reset draft state and messages when switching files
+  isDraft.value = false
+  messages.value = []
+
+  // if no filename provided, show the selector
+  if (!filename) {
+    showFileSelector.value = true
+    chatInputValue.value = ''
+    return
   }
 
-  // If there's an active file, load the discussion tree and use the first node as the initial input
+  showFileSelector.value = false
+
+  // Ensure users/personas are loaded so the thesis statement is valid
+  try {
+    await loadUsers(filename)
+  } catch (e) {
+    console.warn('loadUsers failed in DiscussionPage', e)
+  }
+
+  // Load the discussion tree and extract a first-node fallback text
   let firstNodeText: string | null = null
   try {
-    if (currentFile.value) {
-      await loadDiscussionData(currentFile.value)
-      // discussionRoot may be an object, or an array, or have children
-      const root = discussionRoot.value
-      let firstNode: any = null
-      if (!root) {
-        firstNode = null
-      } else if (Array.isArray(root)) {
-        firstNode = root.length > 0 ? root[0] : null
-      } else if (root.text) {
-        firstNode = root
-      } else if (root.children && root.children.length > 0) {
-        firstNode = root.children[0]
-      }
+    await loadDiscussionData(filename)
+    const root = discussionRoot.value
+    let firstNode: any = null
+    if (!root) {
+      firstNode = null
+    } else if (Array.isArray(root)) {
+      firstNode = root.length > 0 ? root[0] : null
+    } else if (root.text) {
+      firstNode = root
+    } else if (root.children && root.children.length > 0) {
+      firstNode = root.children[0]
+    }
 
-      if (firstNode && firstNode.text) {
-        firstNodeText = String(firstNode.text)
-        // set thesis author from the speaker if available
-        if (!isDraft.value && firstNode.speaker) thesisAuthor.value.name = String(firstNode.speaker)
-      }
+    if (firstNode && firstNode.text) {
+      firstNodeText = String(firstNode.text)
+      if (firstNode.speaker) thesisAuthor.value.name = String(firstNode.speaker)
     }
   } catch (e) {
-    console.warn('loadDiscussionData failed in DiscussionPage onMounted', e)
+    console.warn('loadDiscussionData failed in DiscussionPage', e)
   }
 
   // If the loaded file is a draft (contains a `discussion` array), push those messages into the chat.
-  // We fetch the raw file JSON (backend returns the file content at /api/files/:filename).
   try {
-    if (currentFile.value) {
-      const resp = await fetch(`${API_BASE}/api/files/${encodeURIComponent(currentFile.value)}`)
-      if (resp.ok) {
-        const raw = await resp.json()
-        if (raw && Array.isArray(raw.discussion) && raw.discussion.length > 0) {
-          // convert discussion entries into ChatMessage shape
-          isDraft.value = true
-          const conv = raw.discussion.map((d: any, i: number) => {
-            const speaker =
-              d.speaker || d.from || d.author || (d.node && d.node.speaker) || 'Unknown'
-            const text = d.text || d.body || d.content || (d.node && d.node.text) || ''
-            const referenceId = d.referenceId || d.node?.id || d.id || ''
-            const addressees = Array.isArray(d.addressees) ? d.addressees : d.to ? [d.to] : []
-            return {
-              id: i + 1,
-              referenceId: String(referenceId),
-              speaker: String(speaker),
-              text: String(text),
-              addressees,
-            }
-          })
-          // push messages into the chat (replace any existing messages)
-          messages.value = conv
-          // if we have at least one message, set thesis author to the first message speaker
-          if (conv.length > 0) thesisAuthor.value.name = conv[0].speaker || thesisAuthor.value.name
-        }
+    // preserve folder separators when requesting files by path
+    const resp = await fetch(`${API_BASE}/api/files/${encodeURI(filename)}`)
+    if (resp.ok) {
+      const raw = await resp.json()
+      if (raw && Array.isArray(raw.discussion) && raw.discussion.length > 0) {
+        isDraft.value = true
+        const conv = raw.discussion.map((d: any, i: number) => {
+          const speaker = d.speaker || d.from || d.author || (d.node && d.node.speaker) || 'Unknown'
+          const text = d.text || d.body || d.content || (d.node && d.node.text) || ''
+          const referenceId = d.referenceId || d.node?.id || d.id || ''
+          const addressees = Array.isArray(d.addressees) ? d.addressees : d.to ? [d.to] : []
+          return {
+            id: i + 1,
+            referenceId: String(referenceId),
+            speaker: String(speaker),
+            text: String(text),
+            addressees,
+          }
+        })
+        messages.value = conv
+        if (conv.length > 0) thesisAuthor.value.name = conv[0].speaker || thesisAuthor.value.name
       }
     }
   } catch (e) {
     console.warn('Failed to load raw file for draft messages', e)
   }
 
-  // Fallback: if we couldn't retrieve a first node, leave the input empty so the user can type
+  // Set chat input depending on whether it's a draft or a regular discussion file
   if (!isDraft.value) {
     chatInputValue.value = firstNodeText || ''
   } else {
@@ -123,16 +122,23 @@ onMounted(async () => {
 
   // After child mounts, set the speaker in the TelegramChat (if it exposes setSpeaker)
   await nextTick()
-  // Only set the child component speaker programmatically when the file is a draft
-  // (draft loading above sets thesisAuthor). For regular discussion files we avoid
-  // forcing the speaker on open.
   if (!isDraft.value && telegramChatRef.value && telegramChatRef.value.setSpeaker) {
     telegramChatRef.value.setSpeaker(thesisAuthor.value.name)
   }
+}
 
-  // Show selector if no file param or query
-  if (!currentFile.value) showFileSelector.value = true
+// Load on mount
+onMounted(async () => {
+  await loadSelectedFile(currentFile.value)
 })
+
+// Watch for route param / query changes and reload the selected file
+watch(
+  () => currentFile.value,
+  async (newFile, _oldFile) => {
+    await loadSelectedFile(newFile)
+  },
+)
 
 const chatInputValue = ref('')
 
@@ -197,6 +203,13 @@ const handleAddFromGraph = (messageData: any) => {
   }
 }
 
+// Called when the FileSelectorModal emits a `select` event
+const handleFileSelect = (name: string) => {
+  showFileSelector.value = false
+  // Use query param so child graph component (which watches route.query.file) reloads
+  router.push({ name: 'discussion', query: { file: name } })
+}
+
 // Collapse state for left graph panel
 const graphCollapsed = ref(false)
 const toggleGraphCollapsed = () => {
@@ -244,13 +257,7 @@ const toggleGraphCollapsed = () => {
 
     <FileSelectorModal
       v-if="showFileSelector"
-      @select="
-        (name) => {
-          showFileSelector = false
-          // Navigate using the named route and param so URL becomes /discussion/:file
-          router.push({ name: 'discussion', params: { file: name } })
-        }
-      "
+      @select="handleFileSelect"
       @close="() => (showFileSelector = false)"
     />
   </div>

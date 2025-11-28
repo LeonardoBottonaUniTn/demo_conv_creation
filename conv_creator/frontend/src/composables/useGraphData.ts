@@ -22,9 +22,61 @@ export function useGraphData() {
     try {
       loading.value = true
       // fetch discussion from backend API
-      const res = filename
-        ? await fetch(`${API_BASE}/api/files/${encodeURIComponent(filename)}`)
-        : await fetch(`${API_BASE}/api/discussion`)
+      let res: Response
+      if (filename) {
+        // use encodeURI so that folder separators ('/') are preserved for path parameters
+        const tryUrl = `${API_BASE}/api/files/${encodeURI(filename)}`
+        console.debug('[useGraphData] requesting discussion file URL:', tryUrl)
+        res = await fetch(tryUrl)
+
+        // If backend couldn't find the provided path, try the basename as a fallback
+        if (!res.ok && res.status === 404) {
+          const base = filename.split('/').pop() || filename
+          if (base !== filename) {
+            const tryBaseUrl = `${API_BASE}/api/files/${encodeURI(base)}`
+            console.debug('[useGraphData] fallback to basename URL:', tryBaseUrl)
+            res = await fetch(tryBaseUrl)
+          }
+        }
+
+        // Additional fallback: if still 404, try to find file metadata and fetch by numeric id
+        if (!res.ok && res.status === 404) {
+          try {
+            console.debug('[useGraphData] attempting DB lookup for', filename)
+            const listRes = await fetch(`${API_BASE}/api/files`)
+            if (listRes.ok) {
+              const list = await listRes.json()
+              const normalizedTarget = String(filename).replace(/^files_root[\\/]/, '')
+              let matched: any = null
+              for (const f of list) {
+                const rawPath = f.path || f.name
+                const norm = String(rawPath).replace(/^files_root[\\/]/, '')
+                if (
+                  norm === normalizedTarget ||
+                  f.name === filename ||
+                  f.name === normalizedTarget
+                ) {
+                  matched = f
+                  break
+                }
+              }
+              if (matched && matched.id) {
+                console.debug('[useGraphData] found DB record, fetching by id:', matched.id)
+                res = await fetch(`${API_BASE}/api/files/id/${matched.id}`)
+              }
+            }
+          } catch (e) {
+            console.debug('[useGraphData] DB lookup fallback failed', e)
+          }
+        }
+      } else {
+        // No filename provided: do not attempt legacy `/api/discussion` (server doesn't expose it).
+        // Clear previous data and return early so callers can prompt the user to choose a file.
+        discussionRoot.value = null
+        loading.value = false
+        error.value = ''
+        return
+      }
       if (!res.ok) throw new Error(`Failed to load discussion: ${res.status}`)
       const data = await res.json()
       // Expecting { users: [...], tree: {...} }

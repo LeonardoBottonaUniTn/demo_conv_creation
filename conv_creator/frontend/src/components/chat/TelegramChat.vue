@@ -472,7 +472,8 @@ const confirmSave = async () => {
   const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
   try {
     const resp = await fetch(
-      `${apiBase}/api/files/save-draft/${encodeURIComponent(draftName.value)}`,
+      // preserve '/' in draft filenames so server path-resolution works as expected
+      `${apiBase}/api/files/save-draft/${encodeURI(draftName.value)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

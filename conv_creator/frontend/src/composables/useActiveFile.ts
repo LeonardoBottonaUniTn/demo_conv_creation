@@ -18,7 +18,8 @@ export function useActiveFile() {
     try {
       // remember which file is active
       activeFile.value = fileRef
-      const res = await fetch(`${apiBase}/api/files/${fileRef}`, {
+      // use encodeURI to preserve '/' characters in nested paths
+      const res = await fetch(`${apiBase}/api/files/${encodeURI(fileRef)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       })

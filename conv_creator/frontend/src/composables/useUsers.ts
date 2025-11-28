@@ -11,7 +11,15 @@ export function useUsers() {
 
   const loadUsers = async (file: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/users/${file}`)
+      // preserve folder separators when sending a file path to the backend
+      let res = await fetch(`${API_BASE}/api/users/${encodeURI(file)}`)
+      // If the backend expects just the basename, retry using it when 404
+      if (!res.ok && res.status === 404) {
+        const base = file.split('/').pop() || file
+        if (base !== file) {
+          res = await fetch(`${API_BASE}/api/users/${encodeURI(base)}`)
+        }
+      }
       if (!res.ok) throw new Error('Failed to load users')
       console.log('Fetching users from backend')
       const data = await res.json()
