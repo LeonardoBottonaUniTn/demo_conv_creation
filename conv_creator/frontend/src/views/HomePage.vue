@@ -18,11 +18,6 @@
           <h3>Conversation Generator</h3>
           <p>Generate a conversation flow based on your discussion topics</p>
         </router-link>
-
-        <router-link to="/" class="feature-card clickable-card">
-          <h3>Conversation Evaluator</h3>
-          <p>Evaluate your generated discussion</p>
-        </router-link>
       </div>
 
       <div class="actions">
@@ -33,7 +28,7 @@
     <!-- About Modal -->
     <div v-if="showAbout" class="modal-overlay" @click="showAbout = false">
       <div class="modal-content" @click.stop>
-        <h2>About Discussion Creator</h2>
+        <h2>About LLMberjack</h2>
         <p>
           This application allows you to create, visualize, and interact with complex discussions
           through two main interfaces:
@@ -46,10 +41,21 @@
             <strong>Chat Interface:</strong> Simulate real-time discussions between participants
           </li>
         </ul>
-        <p>
-          Use the graph to understand the structure of arguments, and the chat to see how
-          conversations might flow in real-time.
-        </p>
+        <div class="contacts-block">
+          <h3>Authors</h3>
+          <ul>
+            <li>
+              Leonardo Bottona —
+              <a href="https://github.com/LeonardoBottonaUniTn">github.com/LeonardoBottonaUniTn</a>
+            </li>
+            <li>
+              Nicolò Penzo —
+              <a href="https://nicolopenzo.github.io">https://nicolopenzo.github.io</a>
+            </li>
+          </ul>
+          <h3>License</h3>
+          <p>This project is released under the <strong>Apache 2.0 License</strong>.</p>
+        </div>
         <button class="btn btn-primary" @click="showAbout = false">Close</button>
       </div>
     </div>
