@@ -185,7 +185,12 @@ const handleAddFromGraph = (messageData: any) => {
   let speakerToSet = thesisAuthor.value.name
   try {
     const node = refId ? findNodeById(refId) : null
-    if (node && node.speaker && !isDraft.value) {
+    // Use the node's speaker when available. Previously this skipped when
+    // viewing a draft file (`isDraft`), which caused the wrong speaker to be
+    // selected when adding nodes from the graph into a draft. Always prefer
+    // the node speaker when present so the chat input reflects the node's
+    // author consistently across discussion and draft files.
+    if (node && node.speaker) {
       speakerToSet = String(node.speaker)
       thesisAuthor.value.name = speakerToSet
     }
