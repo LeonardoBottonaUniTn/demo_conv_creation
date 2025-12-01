@@ -45,11 +45,6 @@ __pycache__/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Virtual environments
-venv/
-env/
-ENV/
-
 # Logs
 logs/
 *.log

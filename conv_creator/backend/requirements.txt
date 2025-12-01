@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+sqlite-utils
+starlette
+python-multipart
+python-dotenv
+groq
