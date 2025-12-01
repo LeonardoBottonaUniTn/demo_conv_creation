@@ -32,7 +32,10 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   height: calc(100vh - 200px);
   position: relative;
-  overflow: auto;
+  /* Disable scrolling inside the modular graph container: clip content and
+     block scroll gestures. */
+  overflow: hidden;
+  touch-action: none;
 }
 
 .loading,

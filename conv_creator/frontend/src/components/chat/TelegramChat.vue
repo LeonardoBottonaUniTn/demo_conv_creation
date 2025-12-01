@@ -162,19 +162,19 @@
         <div class="settings-footer">
           <button
             class="save-btn"
-            :disabled="!isDirtyAny"
-            :aria-disabled="!isDirtyAny"
+            :disabled="!canSaveDraft"
+            :aria-disabled="!canSaveDraft"
             @click="handleSaveDraft"
-            :title="isDirtyAny ? 'Save changes' : 'No changes to save'"
+            :title="canSaveDraft ? 'Save changes' : 'No changes to save'"
           >
             Save a draft
           </button>
           <button
             class="save-btn"
-            :disabled="!isDirtyAny"
-            :aria-disabled="!isDirtyAny"
+            :disabled="!canSaveDraft"
+            :aria-disabled="!canSaveDraft"
             @click="handleExportChat"
-            :title="isDirtyAny ? 'Export chat' : 'No changes to export'"
+            :title="canSaveDraft ? 'Export chat' : 'No changes to export'"
           >
             Export chat
           </button>
@@ -357,6 +357,13 @@ const isDirtyAny = computed(() => {
     if ((descriptions[k] || '') !== (originalDescriptions[k] || '')) return true
   }
   return false
+})
+
+// Allow saving/exporting not only when persona descriptions changed,
+// but also when there are messages present (e.g. a user sent at least one message).
+const canSaveDraft = computed(() => {
+  const hasMessages = Array.isArray(localMessages.value) && localMessages.value.length > 0
+  return isDirtyAny.value || hasMessages
 })
 
 const populateDescriptions = () => {

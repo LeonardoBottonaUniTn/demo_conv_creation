@@ -218,7 +218,11 @@ watch(
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   position: relative;
-  overflow: auto;
+  /* Disable scrolling inside the graph container: content will be clipped
+      and no scrollbars or scroll gestures will be possible. Use
+      `touch-action: none` to prevent touch-based panning/scrolling. */
+  overflow: hidden;
+  touch-action: none;
   flex: 1;
   min-height: 0;
   /* Prevent overscroll navigation (two-finger back/forward) on supporting browsers */
