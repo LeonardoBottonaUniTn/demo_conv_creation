@@ -27,7 +27,7 @@
           ref="fileInput"
           type="file"
           multiple
-          accept=".json,.pkl,.csv"
+          accept=".json"
           @change="handleFileSelect"
           class="file-input"
         />
@@ -45,7 +45,7 @@
             <div class="upload-content">
               <i class="pi pi-upload upload-icon" style="font-size: 2rem"></i>
               <h3>Drop files here or click to upload</h3>
-              <p>Supported formats: JSON, PKL, CSV</p>
+              <p>Supported format: JSON</p>
               <button class="upload-button" @click="triggerFileSelect">Choose Files</button>
             </div>
           </div>

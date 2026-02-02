@@ -39,3 +39,7 @@ coverage
 
 test-results/
 playwright-report/
+
+# Additional virtual environments and timestamped backend folders
+backend-env/
+backend */
