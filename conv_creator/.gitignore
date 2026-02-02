@@ -49,3 +49,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Additional virtual environments and timestamped backend folders
+backend-env/
+backend */
