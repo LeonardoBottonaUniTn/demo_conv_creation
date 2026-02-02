@@ -43,3 +43,8 @@ playwright-report/
 # Additional virtual environments and timestamped backend folders
 backend-env/
 backend */
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
