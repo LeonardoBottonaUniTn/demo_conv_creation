@@ -53,3 +53,7 @@ __pycache__/
 # Additional virtual environments and timestamped backend folders
 backend-env/
 backend */
+
+# Additional virtual environments and timestamped backend folders
+backend-env/
+backend */
