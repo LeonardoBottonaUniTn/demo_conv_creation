@@ -427,13 +427,13 @@ async function getUserContext(name: string) {
         console.log('context type', typeof extracted)
         console.log('context content', extracted)
         if (extracted && extracted.length > 0) context = extracted
-        return context
       }
     } catch (e) {
       console.error('Error fetching additional context for user', name, e)
       // continue with whatever we have
     }
   }
+  return context
 }
 
 // Per-user generation (magic) state and helper functions
