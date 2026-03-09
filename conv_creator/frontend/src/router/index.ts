@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '../views/HomePage.vue'
 import DiscussionPage from '../views/DiscussionPage.vue'
 import FilesPage from '../views/FilesPage.vue'
+import LoginPage from '../views/LoginPage.vue'
+import SettingsPage from '../views/SettingsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -12,6 +14,15 @@ const router = createRouter({
       component: HomePage,
       meta: {
         title: 'Discussion Creator - Home',
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: LoginPage,
+      meta: {
+        title: 'Discussion Creator - Login',
       },
     },
     {
@@ -24,6 +35,7 @@ const router = createRouter({
       component: DiscussionPage,
       meta: {
         title: 'Discussion Creator - Discussion Interface',
+        requiresAuth: true,
       },
     },
     {
@@ -32,6 +44,16 @@ const router = createRouter({
       component: FilesPage,
       meta: {
         title: 'Discussion Creator - Files Management',
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsPage,
+      meta: {
+        title: 'Discussion Creator - Settings',
+        requiresAuth: true,
       },
     },
     // Catch-all route for 404 pages
@@ -42,11 +64,23 @@ const router = createRouter({
   ],
 })
 
-// Add navigation guards for dynamic page titles
+// Add navigation guards for dynamic page titles and simple auth
 router.beforeEach((to, from, next) => {
   if (to.meta?.title) {
     document.title = to.meta.title as string
   }
+
+   const requiresAuth = Boolean(to.meta && (to.meta as any).requiresAuth)
+   const token = localStorage.getItem('auth_token')
+
+   if (requiresAuth && !token && to.name !== 'login') {
+     return next({ name: 'login', query: { redirect: to.fullPath } })
+   }
+
+   if (to.name === 'login' && token) {
+     // If already logged in, avoid showing login page again
+     return next((from && from.name) ? from : { name: 'home' })
+   }
   next()
 })
 

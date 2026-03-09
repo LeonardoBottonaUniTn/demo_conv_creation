@@ -5,3 +5,5 @@ starlette
 python-multipart
 python-dotenv
 groq
+passlib[bcrypt]
+python-jose[cryptography]

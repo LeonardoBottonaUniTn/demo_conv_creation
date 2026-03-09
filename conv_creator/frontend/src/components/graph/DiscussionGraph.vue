@@ -184,7 +184,7 @@ watch(
 .graph-section {
   flex: 1;
   padding: 20px;
-  background-color: #f8f9fa;
+  background: transparent;
   overflow: hidden;
   position: relative;
   min-width: 0;
@@ -192,9 +192,9 @@ watch(
   flex-direction: column;
 }
 
-/* When collapsed, remove the background color to match the unified background */
+/* When collapsed, let the wrapper go transparent so only the compact strip remains */
 .graph-section.wrapper-collapsed {
-  background-color: transparent;
+  background: transparent;
 }
 
 .graph-header {
@@ -214,9 +214,10 @@ watch(
 }
 
 .graph-container {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: none;
+  border: 1px solid rgba(15, 23, 42, 0.04);
   position: relative;
   /* Disable scrolling inside the graph container: content will be clipped
       and no scrollbars or scroll gestures will be possible. Use

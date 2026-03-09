@@ -224,15 +224,6 @@ const toggleGraphCollapsed = () => {
 
 <template>
   <div class="discussion-page">
-    <!-- Navigation Header -->
-    <div class="nav-header">
-      <router-link to="/" class="back-button"> ← Back to Home </router-link>
-      <h1 class="page-title">Discussion Interface</h1>
-      <button class="open-file-button" @click="showFileSelector = true">Choose file</button>
-      <!-- Collapse toggle moved into the graph container -->
-      <div class="nav-spacer"></div>
-    </div>
-
     <!-- Main Discussion Container -->
     <div class="discussion-container">
       <!-- Left side - Graph representation (collapsible) -->
@@ -279,10 +270,10 @@ const toggleGraphCollapsed = () => {
 .nav-header {
   display: flex;
   align-items: center;
-  padding: 1rem 1.5rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-  min-height: 60px;
+  padding: 0.75rem 1.5rem 0.5rem;
+  background: transparent;
+  border-bottom: none;
+  min-height: 0;
   box-sizing: border-box;
 }
 
@@ -320,7 +311,7 @@ const toggleGraphCollapsed = () => {
   display: flex;
   flex: 1;
   min-height: 0; /* Allow flex children to shrink */
-  background-color: #f8f9fa; /* unified page background */
+  background: transparent;
 }
 
 /* Give the graph section flexible width */
@@ -342,7 +333,7 @@ const toggleGraphCollapsed = () => {
   min-width: 0;
   min-height: 0; /* allow children (chat card) to shrink inside flex container */
   padding: 20px 20px 20px 0px;
-  background-color: #f8f9fa; /* same surrounding background as graph-section */
+  background: transparent;
   box-sizing: border-box;
 }
 
@@ -367,7 +358,7 @@ const toggleGraphCollapsed = () => {
     width 220ms ease,
     margin 220ms ease;
   overflow: hidden;
-  background-color: #f8f9fa; /* unified page background */
+  background: transparent;
 }
 
 .graph-wrapper.collapsed {
@@ -379,7 +370,7 @@ const toggleGraphCollapsed = () => {
   flex: 0 0 64px; /* collapse to narrow strip */
   padding: 0;
   overflow: visible; /* allow the pseudo-element shadow to show */
-  background-color: #f8f9fa; /* unified page background */
+  background: transparent;
   height: auto; /* Let it maintain the same height as when expanded */
 }
 

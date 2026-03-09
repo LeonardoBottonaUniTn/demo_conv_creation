@@ -1,12 +1,5 @@
 <template>
   <div class="files-page">
-    <!-- Navigation Header -->
-    <div class="nav-header">
-      <router-link to="/" class="back-button"> ← Back to Home </router-link>
-      <h1 class="page-title">Files Management</h1>
-      <div class="nav-spacer"></div>
-    </div>
-
     <div class="container">
       <!-- Main content: upload (root-only) + combined folders/files grid -->
       <div class="content-area">
@@ -1099,7 +1092,7 @@ const formatDate = (date: Date) => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: transparent;
   overflow-y: auto !important;
   box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1198,10 +1191,10 @@ const formatDate = (date: Date) => {
 .nav-header {
   display: flex;
   align-items: center;
-  padding: 1rem 1.5rem;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
-  min-height: 60px;
+  padding: 0.75rem 1.5rem 0.5rem;
+  background: transparent;
+  border-bottom: none;
+  min-height: 0;
   box-sizing: border-box;
 }
 

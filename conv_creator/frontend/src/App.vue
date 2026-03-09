@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The App component now only handles routing
-// All the discussion logic has been moved to DiscussionPage.vue
+import HeaderBar from './components/HeaderBar.vue'
 </script>
 
 <template>
   <div id="app">
+    <HeaderBar />
     <router-view />
   </div>
 </template>
@@ -18,9 +18,26 @@ body {
   padding: 0;
 }
 
+body {
+  min-height: 100vh;
+  font-family:
+    'Space Grotesk',
+    'Inter',
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  background: linear-gradient(135deg, var(--bg-100) 0%, var(--bg-200) 100%);
+  background-attachment: fixed;
+  color: var(--text-900);
+}
+
 #app {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Allow scrolling for specific route components */

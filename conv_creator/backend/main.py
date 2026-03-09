@@ -1,7 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import OAuth2PasswordBearer
 import os
 import sys
 import json
@@ -9,7 +10,10 @@ import sqlite3
 import shutil
 from typing import List, Optional, Dict, Any, Tuple
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 # Add backend directory to Python path so we can import scripts module
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +50,20 @@ ALLOWED_ORIGINS = [
 DB_PATH = os.path.join(BACKEND_DIR, 'db.sqlite3')
 logger = logging.getLogger('uvicorn.error')
 logger.info(f"BACKEND_DIR={BACKEND_DIR} FILES_ROOT={FILES_ROOT} DB_PATH={DB_PATH}")
+
+# Auth configuration
+SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "change-me-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+# LLM configuration (available model choices for the UI and defaults)
+AVAILABLE_LLM_MODELS: List[str] = [
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+]
+DEFAULT_LLM_MODEL: str = AVAILABLE_LLM_MODELS[0]
 
 
 def _init_db() -> None:
@@ -122,8 +140,176 @@ def _init_db() -> None:
                     cur.execute("ALTER TABLE files ADD COLUMN category TEXT")
                 except Exception:
                     pass
+    # Ensure users table exists for authentication
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    has_users = cur.fetchone() is not None
+    if not has_users:
+        cur.execute(
+            '''
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            '''
+        )
+    # Ensure per-user LLM settings table exists
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'")
+    has_settings = cur.fetchone() is not None
+    if not has_settings:
+        cur.execute(
+            '''
+            CREATE TABLE user_settings (
+                user_id INTEGER PRIMARY KEY,
+                api_key TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            '''
+        )
     conn.commit()
     conn.close()
+
+
+def _get_password_hash(password: str) -> str:
+    """Hash a password using the configured password context.
+
+    Enforce a reasonable maximum length to avoid abuse and edge-case bugs in
+    underlying hash implementations.
+    """
+    if len(password) > 128:
+        raise HTTPException(
+            status_code=400,
+            detail="Password is too long; maximum length is 128 characters.",
+        )
+    return pwd_context.hash(password)
+
+
+def _verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
+
+
+def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, email, password_hash, created_at FROM users WHERE LOWER(email) = LOWER(?)",
+        (email,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "email": row[1],
+        "password_hash": row[2],
+        "created_at": row[3],
+    }
+
+
+def _create_user(email: str, password: str) -> Dict[str, Any]:
+    hashed = _get_password_hash(password)
+    created_at = datetime.utcnow().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+            (email, hashed, created_at),
+        )
+        conn.commit()
+        user_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Email already registered")
+    cur.execute("SELECT id, email, password_hash, created_at FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return {
+        "id": row[0],
+        "email": row[1],
+        "password_hash": row[2],
+        "created_at": row[3],
+    }
+
+
+def _create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _get_user_settings(user_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch stored LLM settings for a user, if any."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT api_key, model, created_at, updated_at FROM user_settings WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "api_key": row[0],
+        "model": row[1],
+        "created_at": row[2],
+        "updated_at": row[3],
+    }
+
+
+def _upsert_user_settings(user_id: int, api_key: Optional[str], model: Optional[str]) -> None:
+    """Create or update LLM settings for the given user.
+
+    The API key is stored as provided. The application never returns the
+    stored key in API responses – clients can only set or clear it.
+    """
+    now = datetime.utcnow().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM user_settings WHERE user_id = ?", (user_id,))
+    exists = cur.fetchone() is not None
+    if exists:
+        cur.execute(
+            "UPDATE user_settings SET api_key = ?, model = ?, updated_at = ? WHERE user_id = ?",
+            (api_key, model, now, user_id),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO user_settings (user_id, api_key, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, api_key, model, now, now),
+        )
+    conn.commit()
+    conn.close()
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: Optional[str] = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = _get_user_by_email(email)
+    if not user:
+        raise credentials_exception
+    # Don't expose password hash
+    return {"id": user["id"], "email": user["email"], "created_at": user["created_at"]}
 
 
 def _upsert_file_record(path: str) -> dict:
@@ -258,6 +444,152 @@ def _safe_path(rel_path: str) -> str:
     if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
         raise HTTPException(status_code=400, detail="Invalid or unsafe path")
     return full
+
+
+@app.post("/api/auth/register")
+async def register_user(request: Request):
+    """Register a new user with email and password.
+
+    Expects JSON body: { "email": "user@example.com", "password": "..." }
+    Returns a JWT access token and basic user info.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+
+    existing = _get_user_by_email(email)
+    if existing is not None:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = _create_user(email, password)
+    access_token = _create_access_token({"sub": user["email"]})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {"id": user["id"], "email": user["email"], "created_at": user["created_at"]},
+    }
+
+
+@app.post("/api/auth/login")
+async def login_user(request: Request):
+    """Authenticate a user with email and password.
+
+    Expects JSON body: { "email": "user@example.com", "password": "..." }
+    Returns a JWT access token and basic user info.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    user = _get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+
+    if not _verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+
+    access_token = _create_access_token({"sub": user["email"]})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {"id": user["id"], "email": user["email"], "created_at": user["created_at"]},
+    }
+
+
+@app.get("/api/auth/me")
+async def read_current_user(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the currently authenticated user based on the Bearer token."""
+    return {"user": current_user}
+
+
+@app.get("/api/settings")
+async def get_settings(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the current user's LLM-related settings.
+
+    The response intentionally does not include the stored API key – only a
+    boolean flag is exposed so the client knows whether a key is configured.
+    """
+    settings = _get_user_settings(current_user["id"])
+    model = (settings or {}).get("model") or DEFAULT_LLM_MODEL
+    if model not in AVAILABLE_LLM_MODELS:
+        model = DEFAULT_LLM_MODEL
+    has_api_key = bool((settings or {}).get("api_key"))
+    return {
+        "model": model,
+        "hasApiKey": has_api_key,
+        "availableModels": AVAILABLE_LLM_MODELS,
+    }
+
+
+@app.post("/api/settings")
+async def update_settings(request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Update the current user's LLM API key and preferred model.
+
+    Expects JSON body with optional keys:
+      - apiKey: string (empty string clears the stored key)
+      - model: string (one of AVAILABLE_LLM_MODELS)
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    api_key_raw = body.get("apiKey")
+    model_raw = body.get("model")
+
+    api_key: Optional[str]
+    if api_key_raw is None:
+        # None means: keep existing key as-is
+        existing = _get_user_settings(current_user["id"]) or {}
+        api_key = existing.get("api_key")
+    else:
+        # Empty string explicitly clears the stored key
+        api_key = api_key_raw.strip() or None
+
+    model: Optional[str]
+    if model_raw is None:
+        existing = _get_user_settings(current_user["id"]) or {}
+        model = existing.get("model") or DEFAULT_LLM_MODEL
+    else:
+        model = str(model_raw).strip() or DEFAULT_LLM_MODEL
+
+    if model not in AVAILABLE_LLM_MODELS:
+        raise HTTPException(status_code=400, detail="Unsupported model selection")
+
+    _upsert_user_settings(current_user["id"], api_key, model)
+
+    return {
+        "success": True,
+        "model": model,
+        "hasApiKey": bool(api_key),
+    }
 
 
 def _resolve_stored_relpath(relpath: str) -> str:

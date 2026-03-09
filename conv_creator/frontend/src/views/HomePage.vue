@@ -72,11 +72,7 @@ const showAbout = ref(false)
 /* Make home look consistent with FilesPage: light, neutral background and compact card/button styles */
 .home-page {
   min-height: 100vh;
-  /* If a cover image exists use it (SVG first, then JPG); otherwise a soft gradient is used */
-  background:
-    url('/cover.svg') center/cover no-repeat,
-    url('/cover.jpg') center/cover no-repeat,
-    linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -85,15 +81,6 @@ const showAbout = ref(false)
   overflow-y: auto;
   box-sizing: border-box;
   position: relative;
-}
-
-.home-page::before {
-  /* soft white overlay so text and cards remain legible on top of arbitrary covers */
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(245, 247, 250, 0.55);
-  pointer-events: none;
 }
 
 .hero-section {
