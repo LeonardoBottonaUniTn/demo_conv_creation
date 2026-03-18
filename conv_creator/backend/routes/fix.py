@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException, Request
 import os
 import json
-import sqlite3
 import shutil
 import logging
 from datetime import datetime
 
+from database import _get_file_record_by_id, _set_structure_flag, _upsert_file_record
+from file_utils import _classify_file
 from scripts.llm_calls import transform_discussion_json
-from config import DB_PATH, FILES_ROOT
+from config import FILES_ROOT, BACKEND_DIR
 
 router = APIRouter(prefix="/api/files/fix", tags=["fix"])
 
@@ -15,20 +16,15 @@ router = APIRouter(prefix="/api/files/fix", tags=["fix"])
 @router.post("/{file_id}/preview")
 async def preview_file_fix(file_id: int):
     """Preview the LLM-suggested fix without applying it."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    
+    row = _get_file_record_by_id(file_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
-    
-    name, rel_path = row
-    
+    name = row['name']
+    rel_path = row['path']
+
     if rel_path.startswith('files_root/'):
         rel_path = rel_path[len('files_root/'):]
-    
+
     full_path = os.path.join(FILES_ROOT, rel_path)
     
     if not os.path.exists(full_path):
@@ -70,19 +66,15 @@ async def apply_file_fix(file_id: int, request: Request):
         except Exception:
             pass
     
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    
+    row = _get_file_record_by_id(file_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
     
-    name, rel_path = row
+    name = row['name']
+    rel_path = row['path']
     
     if rel_path.startswith('files_root/'):
-        rel_path = rel_path[len('files_root/'):]
+        rel_path = rel_path[len('files_root/') :]
     
     full_path = os.path.join(FILES_ROOT, rel_path)
     
@@ -110,11 +102,10 @@ async def apply_file_fix(file_id: int, request: Request):
                 shutil.copy2(backup_path, full_path)
             raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
         
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("UPDATE files SET structure_ok = 1 WHERE id = ?", (file_id,))
-        conn.commit()
-        conn.close()
+        try:
+            _set_structure_flag(file_id, True)
+        except Exception as exc:
+            logging.warning(f"Failed to update structure flag in Supabase: {exc}")
     else:
         base, ext = os.path.splitext(name)
         new_name = f"{base}_fix{ext}"
@@ -128,20 +119,8 @@ async def apply_file_fix(file_id: int, request: Request):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
         
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("INSERT INTO files (name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            new_name,
-            os.path.getsize(new_full_path),
-            datetime.now().isoformat(),
-            'json',
-            f'files_root/{new_rel_path}',
-            1,
-            'discussion'
-        ))
-        conn.commit()
-        new_file_id = cur.lastrowid
-        conn.close()
+        rec = _upsert_file_record(new_full_path, BACKEND_DIR, _classify_file)
+        new_file_id = rec.get('id', file_id)
     
     return {
         "success": True,

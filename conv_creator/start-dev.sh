@@ -14,6 +14,16 @@ cd "$ROOT_DIR"
 
 echo "Starting development environment..."
 
+# Load environment variables from .env if present so backend imports pick up
+# SUPABASE_* configuration before uvicorn is spawned.
+if [ -f "$ROOT_DIR/.env" ]; then
+  echo "Loading environment variables from .env"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 # Activate venv if present
 if [ -f "$BACKEND_DIR/backend_env/bin/activate" ]; then
   echo "Activating backend venv..."

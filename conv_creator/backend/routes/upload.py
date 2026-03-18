@@ -4,7 +4,7 @@ from typing import Optional
 
 from database import _upsert_file_record
 from file_utils import _classify_file, _safe_path
-from config import DB_PATH, FILES_ROOT, BACKEND_DIR
+from config import FILES_ROOT, BACKEND_DIR
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
@@ -28,14 +28,14 @@ async def upload_file(file: UploadFile = File(...), path: Optional[str] = Form(N
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
     
-    rec = _upsert_file_record(DB_PATH, dest, BACKEND_DIR, _classify_file)
+    rec = _upsert_file_record(dest, BACKEND_DIR, _classify_file)
     if path:
         try:
             folder_full = os.path.normpath(folder_full)
             for name in os.listdir(folder_full):
                 full = os.path.join(folder_full, name)
                 if os.path.isfile(full) and os.path.splitext(name)[1].lower() in {'.json', '.pkl', '.csv'}:
-                    _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+                    _upsert_file_record(full, BACKEND_DIR, _classify_file)
         except Exception:
             pass
     return {"message": "Uploaded", "file": rec}

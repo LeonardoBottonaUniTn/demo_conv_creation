@@ -9,9 +9,6 @@ FILES_ROOT = os.path.join(BACKEND_DIR, 'files_root')
 if not os.path.exists(FILES_ROOT):
     os.makedirs(FILES_ROOT, exist_ok=True)
 
-# Database path
-DB_PATH = os.path.join(BACKEND_DIR, 'db.sqlite3')
-
 # Allowed origins for CORS
 ALLOWED_ORIGINS = [
     "http://localhost:5173",

@@ -1,134 +1,191 @@
-import sqlite3
-import os
-from typing import List, Dict, Optional, Tuple, Any
-from datetime import datetime
+from __future__ import annotations
 
-# Assuming BACKEND_DIR and DB_PATH are defined elsewhere, but for now, let's pass them or define here
-# For simplicity, let's define DB_PATH here, but ideally pass it.
+import logging
+import os
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from supabase_client import get_supabase_client
+
+logger = logging.getLogger("uvicorn.error")
+
+JsonClassifier = Callable[[str], Tuple[Optional[int], Optional[str]]]
+_FileRow = Dict[str, Any]
+
 
 def get_db_path(backend_dir: str) -> str:
-    return os.path.join(backend_dir, 'db.sqlite3')
+    """Legacy helper kept for compatibility.
 
-def _init_db(db_path: str) -> None:
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    # If files table doesn't exist, create it with an autoincrement id and unique name.
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
-    exists = cur.fetchone() is not None
-    if not exists:
-        cur.execute(
-            '''
-            CREATE TABLE files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                    size INTEGER,
-                    uploadDate TEXT,
-                    type TEXT,
-                    path TEXT,
-                    structure_ok INTEGER,
-                    category TEXT
-            )
-            '''
-        )
+    The SQLite database is no longer used, but some callers still invoke this
+    function while we phase out the old import sites. Returning the historical
+    path keeps those callers from breaking while making it obvious that the
+    value is unused.
+    """
+    return os.path.join(backend_dir, "db.sqlite3")
+
+
+def _init_db(_: str) -> None:
+    """Supabase manages the schema; nothing to initialize locally."""
+    logger.info("Supabase is now the source of truth for file metadata; skipping local DB init.")
+
+
+def _structure_flag_to_bool(flag: Optional[int]) -> Optional[bool]:
+    if flag is None:
+        return None
+    return bool(flag)
+
+
+def _normalize_file_row(row: _FileRow) -> _FileRow:
+    """Convert Supabase column naming to the response shape expected by the UI."""
+    upload_date = row.get("upload_date") or row.get("uploadDate")
+    if isinstance(upload_date, datetime):
+        upload_date = upload_date.isoformat()
+
+    structure_ok = row.get("structure_ok")
+    if isinstance(structure_ok, bool):
+        normalized_structure = 1 if structure_ok else 0
     else:
-        # If table exists, check columns. If it has no 'id' column, perform migration.
-        cur.execute("PRAGMA table_info(files)")
-        cols = [r[1] for r in cur.fetchall()]
-        # If table lacks expected columns, migrate safely.
-        if 'id' not in cols:
-            # create new table with desired schema
-            cur.execute(
-                '''
-                CREATE TABLE files_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    size INTEGER,
-                    uploadDate TEXT,
-                    type TEXT,
-                    path TEXT,
-                    structure_ok INTEGER,
-                    category TEXT
-                )
-                '''
-            )
-            # copy data from old files to new (if columns exist)
-            # attempt multiple strategies to preserve existing columns; fall back safely
-            try:
-                # try to copy structure_ok and category if they exist in old table
-                cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, structure_ok, category FROM files")
-            except Exception:
-                try:
-                    # copy data and set structure_ok/category default to NULL
-                    cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, NULL, NULL FROM files")
-                except Exception:
-                    # fallback: copy only names (set others NULL)
-                    try:
-                        cur.execute("INSERT INTO files_new(name, structure_ok, category) SELECT name, NULL, NULL FROM files")
-                    except Exception:
-                        pass
-            cur.execute("DROP TABLE files")
-            cur.execute("ALTER TABLE files_new RENAME TO files")
-        else:
-            # If 'structure_ok' column is missing on an otherwise normal table,
-            # add it in-place using ALTER TABLE so we don't need to recreate data.
-            if 'structure_ok' not in cols:
-                try:
-                    cur.execute("ALTER TABLE files ADD COLUMN structure_ok INTEGER")
-                except Exception:
-                    # best-effort: if ALTER fails, leave table as-is; app will handle missing column errors elsewhere
-                    pass
-            # ensure category column exists
-            if 'category' not in cols:
-                try:
-                    cur.execute("ALTER TABLE files ADD COLUMN category TEXT")
-                except Exception:
-                    pass
-    conn.commit()
-    conn.close()
+        normalized_structure = structure_ok
 
-def _upsert_file_record(db_path: str, path: str, backend_dir: str, classify_func) -> dict:
-    import os
+    return {
+        "id": row.get("id"),
+        "name": row.get("name"),
+        "size": row.get("size"),
+        "uploadDate": upload_date,
+        "type": row.get("file_type") or row.get("type"),
+        "path": row.get("rel_path") or row.get("path"),
+        "structure_ok": normalized_structure,
+        "category": row.get("category"),
+        "checksum": row.get("checksum"),
+        "created_by": row.get("created_by"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _upsert_file_record(
+    *args: Any,
+    created_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Store or refresh file metadata inside Supabase."""
+    if len(args) == 3:
+        path, backend_dir, classify_func = args
+    elif len(args) == 4:
+        # Legacy signature included an unused DB path as the first argument.
+        _, path, backend_dir, classify_func = args
+    else:
+        raise TypeError(
+            "_upsert_file_record expected (path, backend_dir, classify_func)"
+            " or (db_path, path, backend_dir, classify_func)"
+        )
+
+    client = get_supabase_client()
+
     stat = os.stat(path)
     name = os.path.basename(path)
     size = stat.st_size
-    uploadDate = datetime.fromtimestamp(stat.st_mtime).isoformat()
-    ftype = os.path.splitext(path)[1].lstrip('.').lower() or 'unknown'
-    relpath = os.path.relpath(path, backend_dir)
+    upload_date = datetime.fromtimestamp(stat.st_mtime).isoformat()
+    file_type = os.path.splitext(path)[1].lstrip(".").lower() or "unknown"
+    rel_path = os.path.relpath(path, backend_dir)
 
-    # classify JSON files and compute structure_ok for JSON files:
-    # struct_flag: 1 = valid tree/draft, 0 = invalid, None = skipped/non-json
-    # category: 'discussion' | 'draft' | 'invalid' | None
     struct_flag, category = classify_func(path)
+    payload = {
+        "name": name,
+        "size": size,
+        "upload_date": upload_date,
+        "file_type": file_type,
+        "rel_path": rel_path,
+        "structure_ok": _structure_flag_to_bool(struct_flag),
+        "category": category,
+        "created_by": created_by,
+    }
 
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute(
-        'INSERT INTO files(name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)' 
-        ' ON CONFLICT(name) DO UPDATE SET size=excluded.size, uploadDate=excluded.uploadDate, type=excluded.type, path=excluded.path, structure_ok=excluded.structure_ok, category=excluded.category',
-        (name, size, uploadDate, ftype, relpath, struct_flag, category),
+    # Remove keys with None so Supabase defaults/nullable columns behave normally.
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    response = client.table("files").upsert(payload, on_conflict="name").select("*").execute()
+    if response.error:
+        raise RuntimeError(f"Failed to upsert file metadata for {name}: {response.error}")
+
+    row = response.data[0] if response.data else payload
+    return _normalize_file_row(row)
+
+
+def _delete_file_record(*args: Any) -> None:
+    if len(args) == 1:
+        name = args[0]
+    elif len(args) == 2:
+        _, name = args
+    else:
+        raise TypeError("_delete_file_record expected name or (db_path, name)")
+    client = get_supabase_client()
+    response = client.table("files").delete().eq("name", name).execute()
+    if response.error:
+        raise RuntimeError(f"Failed to delete file metadata for {name}: {response.error}")
+
+def _list_files_db(*_args: Any) -> List[Dict[str, Any]]:
+    client = get_supabase_client()
+    response = client.table("files").select("*").order("name").execute()
+    if response.error:
+        raise RuntimeError(f"Failed to fetch file metadata: {response.error}")
+    return [_normalize_file_row(row) for row in response.data]
+
+
+def _get_file_record_by_id(file_id: int) -> Optional[Dict[str, Any]]:
+    client = get_supabase_client()
+    response = (
+        client.table("files").select("*").eq("id", file_id).limit(1).execute()
     )
-    conn.commit()
-    # fetch id and return full record
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files WHERE name = ?', (name,))
-    row = cur.fetchone()
-    conn.close()
-    if row:
-        return {"id": row[0], "name": row[1], "size": row[2], "uploadDate": row[3], "type": row[4], "path": row[5], "structure_ok": row[6], "category": row[7]}
-    return {"name": name, "size": size, "uploadDate": uploadDate, "type": ftype, "path": relpath, "category": category}
+    if response.error:
+        raise RuntimeError(f"Failed to fetch file id={file_id}: {response.error}")
+    if not response.data:
+        return None
+    return _normalize_file_row(response.data[0])
 
-def _delete_file_record(db_path: str, name: str) -> None:
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute('DELETE FROM files WHERE name = ?', (name,))
-    conn.commit()
-    conn.close()
 
-def _list_files_db(db_path: str) -> List[dict]:
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files')
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "name": r[1], "size": r[2], "uploadDate": r[3], "type": r[4], "path": r[5], "structure_ok": r[6], "category": r[7]} for r in rows
-    ]
+def _get_file_by_name_or_relpath(identifier: str) -> Optional[Dict[str, Any]]:
+    client = get_supabase_client()
+    # Try by name first.
+    response = client.table("files").select("*").eq("name", identifier).limit(1).execute()
+    if response.error:
+        raise RuntimeError(
+            f"Failed to fetch file by identifier '{identifier}': {response.error}"
+        )
+    if response.data:
+        return _normalize_file_row(response.data[0])
+
+    response = (
+        client.table("files").select("*").eq("rel_path", identifier).limit(1).execute()
+    )
+    if response.error:
+        raise RuntimeError(
+            f"Failed to fetch file by identifier '{identifier}': {response.error}"
+        )
+    if not response.data:
+        return None
+    return _normalize_file_row(response.data[0])
+
+
+def _delete_files_with_prefix(prefix: str) -> int:
+    """Delete all file rows whose stored rel_path starts with the prefix."""
+    client = get_supabase_client()
+    selector = client.table("files").select("id").like("rel_path", f"{prefix}%")
+    preview = selector.execute()
+    if preview.error:
+        raise RuntimeError(f"Failed to preview files for deletion: {preview.error}")
+    ids = [row["id"] for row in preview.data]
+    if not ids:
+        return 0
+    response = client.table("files").delete().in_("id", ids).execute()
+    if response.error:
+        raise RuntimeError(f"Failed to delete files for prefix {prefix}: {response.error}")
+    return len(ids)
+
+
+def _set_structure_flag(file_id: int, value: bool) -> None:
+    client = get_supabase_client()
+    response = client.table("files").update({"structure_ok": value}).eq("id", file_id).execute()
+    if response.error:
+        raise RuntimeError(
+            f"Failed to update structure flag for file {file_id}: {response.error}"
+        )

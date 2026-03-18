@@ -2,27 +2,32 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 import os
 import json
-import sqlite3
 import shutil
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from database import _upsert_file_record, _delete_file_record, _list_files_db
+from database import (
+    _delete_file_record,
+    _get_file_by_name_or_relpath,
+    _get_file_record_by_id,
+    _list_files_db,
+    _upsert_file_record,
+)
 from file_utils import _classify_file, _safe_path, _resolve_stored_relpath, _atomic_write_json
-from config import DB_PATH, FILES_ROOT, BACKEND_DIR
+from config import FILES_ROOT, BACKEND_DIR
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 @router.get("")
 def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
-    """List available files from the SQLite metadata table.
+    """List available files from the Supabase metadata table.
 
     If folder is provided it filters results to that subfolder (relative to files_root).
     If DB is empty it will scan FILES_ROOT (or the provided folder) to populate the DB.
     """
-    rows = _list_files_db(DB_PATH)
+    rows = _list_files_db()
     
     def fill_defaults(file_row):
         # Always set type to 'json' if missing or None
@@ -71,14 +76,14 @@ def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
             for name in files:
                 if os.path.splitext(name)[1].lower() in allowed_exts:
                     full = os.path.join(root, name)
-                    rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+                    rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
                     entries.append(rec)
     else:
         for root, _, files in os.walk(FILES_ROOT):
             for name in files:
                 if os.path.splitext(name)[1].lower() in allowed_exts:
                     full = os.path.join(root, name)
-                    rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+                    rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
                     entries.append(rec)
     return entries
 
@@ -86,15 +91,11 @@ def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
 @router.get('/id/{file_id}')
 def get_file_by_id(file_id: int, download: bool = False):
     """Return file metadata or JSON content when targeting by numeric id."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
     logger = logging.getLogger('uvicorn.error')
+    row = _get_file_record_by_id(file_id)
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
-    relpath = row[1]
+    relpath = row['path']
     full = _resolve_stored_relpath(relpath, BACKEND_DIR, FILES_ROOT)
     files_root_norm = os.path.normpath(FILES_ROOT)
     if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
@@ -128,13 +129,9 @@ def get_file(filename: str, download: bool = False):
         raise
 
     if not os.path.exists(full):
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute('SELECT path FROM files WHERE name = ? OR path = ?', (filename, filename))
-        row = cur.fetchone()
-        conn.close()
-        if row:
-            relpath = row[0]
+        record = _get_file_by_name_or_relpath(filename)
+        if record:
+            relpath = record.get('path')
             try:
                 candidate = _resolve_stored_relpath(relpath, BACKEND_DIR, FILES_ROOT)
             except Exception:
@@ -166,15 +163,11 @@ def get_file(filename: str, download: bool = False):
 @router.patch('/id/{file_id}')
 async def save_changes_file_by_id(file_id: int, request: Request):
     """Save changes to a JSON file identified by numeric id."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
+    row = _get_file_record_by_id(file_id)
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
-    name = row[0]
-    relpath = row[1]
+    name = row['name']
+    relpath = row['path']
     full = _resolve_stored_relpath(relpath, BACKEND_DIR, FILES_ROOT)
     logger = logging.getLogger('uvicorn.error')
     logger.info(f"save_changes_file_by_id: id={file_id} name={name} relpath={relpath} resolved_full={full}")
@@ -197,7 +190,7 @@ async def save_changes_file_by_id(file_id: int, request: Request):
     except Exception as e:
         logger.error(f"save_changes_file_by_id: failed to write {full}: {e}")
         raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
-    rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+    rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
     return {"message": "Saved", "file": rec}
 
 
@@ -255,28 +248,24 @@ async def save_changes_file_by_name(filename: str, request: Request):
         logger.error(f"save_changes_file_by_name: failed to write {full}: {e}")
         raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
 
-    rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+    rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
     return {"message": "Saved", "file": rec}
 
 
 @router.delete('/id/{file_id}')
 def delete_file_by_id(file_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
+    row = _get_file_record_by_id(file_id)
     if not row:
         raise HTTPException(status_code=404, detail='File not found')
-    name = row[0]
-    relpath = row[1]
+    name = row['name']
+    relpath = row['path']
     full = _resolve_stored_relpath(relpath, BACKEND_DIR, FILES_ROOT)
     if os.path.exists(full):
         try:
             os.remove(full)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to remove file: {e}')
-    _delete_file_record(DB_PATH, name)
+    _delete_file_record(name)
     return {"message": "Deleted", "file": name, "id": file_id}
 
 
@@ -286,33 +275,26 @@ def delete_file(filename: str):
     if not os.path.exists(full):
         raise HTTPException(status_code=404, detail="File not found")
     os.remove(full)
+    rel = os.path.relpath(full, BACKEND_DIR)
+    record = _get_file_by_name_or_relpath(rel) or _get_file_by_name_or_relpath(os.path.basename(filename))
+    file_id = record['id'] if record else None
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        rel = os.path.relpath(full, BACKEND_DIR)
-        cur.execute('SELECT id FROM files WHERE path = ?', (rel,))
-        row = cur.fetchone()
-        if not row:
-            cur.execute('SELECT id FROM files WHERE name = ?', (os.path.basename(filename),))
-            row = cur.fetchone()
-        file_id = row[0] if row else None
-        conn.close()
-        _delete_file_record(DB_PATH, os.path.basename(filename))
+        _delete_file_record(os.path.basename(filename))
     except Exception:
-        file_id = None
+        pass
     return {"message": "Deleted", "file": filename, "id": file_id}
 
 
 @router.post('/migrate-files')
 def migrate_files():
-    """Scan backend directory for allowed files and populate/update the SQLite metadata table."""
+    """Scan backend directory for allowed files and populate/update the Supabase metadata table."""
     allowed_exts = {'.json', '.pkl', '.csv'}
     entries = []
     for root, _, files in os.walk(FILES_ROOT):
         for name in files:
             if os.path.splitext(name)[1].lower() in allowed_exts:
                 full = os.path.join(root, name)
-                rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+                rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
                 entries.append(rec)
     return {"migrated": len(entries), "files": entries}
 
@@ -351,7 +333,7 @@ async def save_draft_file(filename: str, request: Request):
         raise HTTPException(status_code=500, detail=f'Failed to write draft file: {e}')
 
     try:
-        rec = _upsert_file_record(DB_PATH, full, BACKEND_DIR, _classify_file)
+                rec = _upsert_file_record(full, BACKEND_DIR, _classify_file)
     except Exception:
         rec = None
 
@@ -372,30 +354,25 @@ def move_files_endpoint(data: dict):
         raise e
 
     os.makedirs(dest_full, exist_ok=True)
-
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
     moved = []
     errors = []
 
     for t in targets:
-        row = None
+        record = None
         try:
             tid = int(t)
-            cur.execute('SELECT name, path FROM files WHERE id = ?', (tid,))
-            row = cur.fetchone()
-        except Exception:
-            cur.execute('SELECT id, name, path FROM files WHERE path = ? OR name = ?', (t, os.path.basename(str(t))))
-            row = cur.fetchone()
+            record = _get_file_record_by_id(tid)
+        except (TypeError, ValueError):
+            record = None
+        if not record:
+            record = _get_file_by_name_or_relpath(str(t))
 
-        if not row:
+        if not record:
             errors.append({'target': t, 'error': 'not found in DB'})
             continue
 
-        if len(row) == 2:
-            name, relpath = row
-        else:
-            _, name, relpath = row
+        name = record['name']
+        relpath = record['path']
 
         try:
             src_full = _resolve_stored_relpath(relpath, BACKEND_DIR, FILES_ROOT)
@@ -416,10 +393,8 @@ def move_files_endpoint(data: dict):
             if os.path.exists(dest_full_path):
                 os.remove(dest_full_path)
             shutil.move(src_full, dest_full_path)
-            rec = _upsert_file_record(DB_PATH, dest_full_path, BACKEND_DIR, _classify_file)
+            rec = _upsert_file_record(dest_full_path, BACKEND_DIR, _classify_file)
             moved.append({'target': t, 'moved_to': rec.get('path'), 'id': rec.get('id')})
         except Exception as e:
             errors.append({'target': t, 'error': str(e)})
-
-    conn.close()
     return {'moved': moved, 'errors': errors}

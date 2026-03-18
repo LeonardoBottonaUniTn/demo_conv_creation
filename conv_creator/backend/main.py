@@ -1,43 +1,3 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.security import OAuth2PasswordBearer
-import os
-import sys
-import json
-import sqlite3
-import shutil
-from typing import List, Optional, Dict, Any, Tuple
-import logging
-from datetime import datetime, timedelta
-
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-
-# Add backend directory to Python path so we can import scripts module
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
-
-# Now we can import from scripts
-from scripts.llm_calls import transform_discussion_json, generate_user_bio, generate_message_rewrite
-
-# FastAPI app
-app = FastAPI()
-
-# Configuration
-# Use the already computed absolute BACKEND_DIR (set earlier using
-# os.path.dirname(os.path.abspath(__file__))). Avoid reassigning to
-# os.path.dirname(__file__) which can be a relative path depending on
-# how the application is started (this caused incorrect FILES_ROOT
-# resolution and 'file not found' errors).
-FILES_ROOT = os.path.join(BACKEND_DIR, 'files_root')
-if not os.path.exists(FILES_ROOT):
-    os.makedirs(FILES_ROOT, exist_ok=True)
-    # Log when we create the folder so startup logs contain useful info
-    logger = logging.getLogger('uvicorn.error')
-    logger.error(f"Created FILES_ROOT directory at: {FILES_ROOT}")
 else:
     logger = logging.getLogger('uvicorn.error')
     logger.info(f"Using existing FILES_ROOT: {FILES_ROOT}")
@@ -46,18 +6,13 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-# Use the existing sqlite DB in the backend folder if present
-DB_PATH = os.path.join(BACKEND_DIR, 'db.sqlite3')
+# Log resolved paths for easier debugging
 logger = logging.getLogger('uvicorn.error')
-logger.info(f"BACKEND_DIR={BACKEND_DIR} FILES_ROOT={FILES_ROOT} DB_PATH={DB_PATH}")
+logger.info(f"BACKEND_DIR={BACKEND_DIR} FILES_ROOT={FILES_ROOT}")
 
-# Auth configuration
-SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "change-me-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# Supabase Auth configuration
+SUPABASE_URL = get_supabase_url()
+auth_scheme = HTTPBearer(auto_error=False)
 
 # LLM configuration (available model choices for the UI and defaults)
 AVAILABLE_LLM_MODELS: List[str] = [
@@ -66,353 +21,222 @@ AVAILABLE_LLM_MODELS: List[str] = [
 DEFAULT_LLM_MODEL: str = AVAILABLE_LLM_MODELS[0]
 
 
-def _init_db() -> None:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    # If files table doesn't exist, create it with an autoincrement id and unique name.
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
-    exists = cur.fetchone() is not None
-    if not exists:
-        cur.execute(
-            '''
-            CREATE TABLE files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                    size INTEGER,
-                    uploadDate TEXT,
-                    type TEXT,
-                    path TEXT,
-                    structure_ok INTEGER,
-                    category TEXT
-            )
-            '''
-        )
-    else:
-        # If table exists, check columns. If it has no 'id' column, perform migration.
-        cur.execute("PRAGMA table_info(files)")
-        cols = [r[1] for r in cur.fetchall()]
-        # If table lacks expected columns, migrate safely.
-        if 'id' not in cols:
-            # create new table with desired schema
-            cur.execute(
-                '''
-                CREATE TABLE files_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    size INTEGER,
-                    uploadDate TEXT,
-                    type TEXT,
-                    path TEXT,
-                    structure_ok INTEGER,
-                    category TEXT
-                )
-                '''
-            )
-            # copy data from old files to new (if columns exist)
-            # attempt multiple strategies to preserve existing columns; fall back safely
-            try:
-                # try to copy structure_ok and category if they exist in old table
-                cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, structure_ok, category FROM files")
-            except Exception:
-                try:
-                    # copy data and set structure_ok/category default to NULL
-                    cur.execute("INSERT INTO files_new(name, size, uploadDate, type, path, structure_ok, category) SELECT name, size, uploadDate, type, path, NULL, NULL FROM files")
-                except Exception:
-                    # fallback: copy only names (set others NULL)
-                    try:
-                        cur.execute("INSERT INTO files_new(name, structure_ok, category) SELECT name, NULL, NULL FROM files")
-                    except Exception:
-                        pass
-            cur.execute("DROP TABLE files")
-            cur.execute("ALTER TABLE files_new RENAME TO files")
-        else:
-            # If 'structure_ok' column is missing on an otherwise normal table,
-            # add it in-place using ALTER TABLE so we don't need to recreate data.
-            if 'structure_ok' not in cols:
-                try:
-                    cur.execute("ALTER TABLE files ADD COLUMN structure_ok INTEGER")
-                except Exception:
-                    # best-effort: if ALTER fails, leave table as-is; app will handle missing column errors elsewhere
-                    pass
-            # ensure category column exists
-            if 'category' not in cols:
-                try:
-                    cur.execute("ALTER TABLE files ADD COLUMN category TEXT")
-                except Exception:
-                    pass
-    # Ensure users table exists for authentication
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    has_users = cur.fetchone() is not None
-    if not has_users:
-        cur.execute(
-            '''
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            '''
-        )
-    # Ensure per-user LLM settings table exists
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'")
-    has_settings = cur.fetchone() is not None
-    if not has_settings:
-        cur.execute(
-            '''
-            CREATE TABLE user_settings (
-                user_id INTEGER PRIMARY KEY,
-                api_key TEXT,
-                model TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-            '''
-        )
-    conn.commit()
-    conn.close()
 
 
-def _get_password_hash(password: str) -> str:
-    """Hash a password using the configured password context.
-
-    Enforce a reasonable maximum length to avoid abuse and edge-case bugs in
-    underlying hash implementations.
-    """
-    if len(password) > 128:
-        raise HTTPException(
-            status_code=400,
-            detail="Password is too long; maximum length is 128 characters.",
-        )
-    return pwd_context.hash(password)
+def _require_supabase_key(env_var: str) -> str:
+    value = os.getenv(env_var)
+    if not value:
+        raise RuntimeError(f"Environment variable {env_var} must be set for Supabase integration")
+    return value
 
 
-def _verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
-        return False
-
-
-def _get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, email, password_hash, created_at FROM users WHERE LOWER(email) = LOWER(?)",
-        (email,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
+def _build_supabase_auth_headers(*, use_service: bool = False) -> Dict[str, str]:
+    key = _require_supabase_key("SUPABASE_SERVICE_ROLE_KEY" if use_service else "DATABASE_ANON_KEY")
     return {
-        "id": row[0],
-        "email": row[1],
-        "password_hash": row[2],
-        "created_at": row[3],
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
     }
 
 
-def _create_user(email: str, password: str) -> Dict[str, Any]:
-    hashed = _get_password_hash(password)
-    created_at = datetime.utcnow().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+async def _supabase_auth_post(path: str, payload: Dict[str, Any], *, params: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    url = f"{SUPABASE_AUTH_URL}{path}"
+    headers = _build_supabase_auth_headers()
     try:
-        cur.execute(
-            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
-            (email, hashed, created_at),
-        )
-        conn.commit()
-        user_id = cur.lastrowid
-    except sqlite3.IntegrityError:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Email already registered")
-    cur.execute("SELECT id, email, password_hash, created_at FROM users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return {
-        "id": row[0],
-        "email": row[1],
-        "password_hash": row[2],
-        "created_at": row[3],
-    }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, headers=headers, params=params, json=payload)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Supabase auth request failed: {exc}") from exc
 
-
-def _create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def _get_user_settings(user_id: int) -> Optional[Dict[str, Any]]:
-    """Fetch stored LLM settings for a user, if any."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT api_key, model, created_at, updated_at FROM user_settings WHERE user_id = ?",
-        (user_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "api_key": row[0],
-        "model": row[1],
-        "created_at": row[2],
-        "updated_at": row[3],
-    }
-
-
-def _upsert_user_settings(user_id: int, api_key: Optional[str], model: Optional[str]) -> None:
-    """Create or update LLM settings for the given user.
-
-    The API key is stored as provided. The application never returns the
-    stored key in API responses – clients can only set or clear it.
-    """
-    now = datetime.utcnow().isoformat()
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM user_settings WHERE user_id = ?", (user_id,))
-    exists = cur.fetchone() is not None
-    if exists:
-        cur.execute(
-            "UPDATE user_settings SET api_key = ?, model = ?, updated_at = ? WHERE user_id = ?",
-            (api_key, model, now, user_id),
-        )
-    else:
-        cur.execute(
-            "INSERT INTO user_settings (user_id, api_key, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (user_id, api_key, model, now, now),
-        )
-    conn.commit()
-    conn.close()
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: Optional[str] = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = _get_user_by_email(email)
-    if not user:
-        raise credentials_exception
-    # Don't expose password hash
-    return {"id": user["id"], "email": user["email"], "created_at": user["created_at"]}
-
-
-def _upsert_file_record(path: str) -> dict:
-    stat = os.stat(path)
-    name = os.path.basename(path)
-    size = stat.st_size
-    uploadDate = datetime.fromtimestamp(stat.st_mtime).isoformat()
-    ftype = os.path.splitext(path)[1].lstrip('.').lower() or 'unknown'
-    relpath = os.path.relpath(path, BACKEND_DIR)
-
-    # classify JSON files and compute structure_ok for JSON files:
-    # struct_flag: 1 = valid tree/draft, 0 = invalid, None = skipped/non-json
-    # category: 'discussion' | 'draft' | 'invalid' | None
-    def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
-        if not full_path.lower().endswith('.json'):
-            return None, None
-        parts = os.path.normpath(full_path).split(os.sep)
-        # do not skip user files here; upload should classify everything
+    if response.status_code >= 400:
+        detail = response.text
         try:
-            with open(full_path, 'r', encoding='utf-8') as fh:
-                data = json.load(fh)
+            payload_json = response.json()
+            detail = (
+                payload_json.get("msg")
+                or payload_json.get("message")
+                or payload_json.get("error_description")
+                or detail
+            )
         except Exception:
-            return 0, 'invalid'
+            pass
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return response.json()
 
-        def valid_node(node: any) -> bool:
-            if not isinstance(node, dict):
-                return False
-            for k in ('id', 'speaker', 'text', 'children'):
-                if k not in node:
-                    return False
-            if not isinstance(node.get('id'), str):
-                return False
-            if not isinstance(node.get('speaker'), str):
-                return False
-            if not isinstance(node.get('text'), str):
-                return False
-            if not isinstance(node.get('children'), list):
-                return False
-            for ch in node.get('children'):
-                if not valid_node(ch):
-                    return False
-            return True
 
-        # detect draft: has fileRef, users, tree, discussion
-        if isinstance(data, dict) and all(k in data for k in ('fileRef', 'users', 'tree', 'discussion')):
-            # validate tree and discussion minimally
-            tree_ok = isinstance(data.get('tree'), dict) and (valid_node(data['tree']) if isinstance(data.get('tree'), dict) else False)
-            discussion_ok = isinstance(data.get('discussion'), list)
-            if tree_ok and discussion_ok:
-                return 1, 'draft'
-            return 0, 'invalid'
+def _decode_supabase_token(token: str) -> Dict[str, Any]:
+    try:
+        header = jwt.get_unverified_header(token)
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token header") from exc
 
-        # detect discussion tree file: top-level users + tree
-        if isinstance(data, dict) and all(k in data for k in ('users', 'tree')):
-            tree_ok = isinstance(data.get('tree'), dict) and (valid_node(data['tree']) if isinstance(data.get('tree'), dict) else False)
-            users_ok = isinstance(data.get('users'), list)
-            if tree_ok and users_ok:
-                return 1, 'discussion'
-            return 0, 'invalid'
+    kid = header.get("kid")
+    jwks = get_jwks()
+    key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+    if not key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown token key")
 
-        # fallback: invalid
+    public_key = jwk.construct(key)
+    try:
+        message, encoded_sig = token.rsplit('.', 1)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token") from exc
+
+    decoded_sig = base64url_decode(encoded_sig.encode('utf-8'))
+    if not public_key.verify(message.encode('utf-8'), decoded_sig):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token signature")
+
+    claims = jwt.get_unverified_claims(token)
+    exp = claims.get("exp")
+    if exp and time.time() > exp:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+    return claims
+
+
+def _build_user_from_claims(claims: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": claims.get("sub"),
+        "email": claims.get("email") or (claims.get("user_metadata") or {}).get("email"),
+        "role": claims.get("role"),
+        "app_metadata": claims.get("app_metadata", {}),
+        "user_metadata": claims.get("user_metadata", {}),
+    }
+
+
+def _get_user_settings(user_id: str) -> Optional[Dict[str, Any]]:
+    client = get_supabase_client()
+    response = (
+        client.table("user_settings")
+        .select("api_key, model, created_at, updated_at")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if response.error:
+        logger.error("Failed to load user settings for %s: %s", user_id, response.error)
+        raise HTTPException(status_code=500, detail="Failed to load user settings")
+    if not response.data:
+        return None
+    return response.data[0]
+
+
+def _upsert_user_settings(user_id: str, api_key: Optional[str], model: Optional[str]) -> None:
+    client = get_supabase_client()
+    payload = {
+        "user_id": user_id,
+        "api_key": api_key,
+        "model": model,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    response = client.table("user_settings").upsert(payload, on_conflict="user_id").execute()
+    if response.error:
+        logger.error("Failed to upsert user settings for %s: %s", user_id, response.error)
+        raise HTTPException(status_code=500, detail="Failed to update user settings")
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(auth_scheme),
+) -> Dict[str, Any]:
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    claims = _decode_supabase_token(credentials.credentials)
+    user = _build_user_from_claims(claims)
+    if not user.get("id"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Supabase token")
+    return user
+
+
+def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
+    if not full_path.lower().endswith('.json'):
+        return None, None
+    try:
+        with open(full_path, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+    except Exception:
         return 0, 'invalid'
 
-    struct_flag, category = _classify_file(path)
+    def valid_node(node: Any) -> bool:
+        if not isinstance(node, dict):
+            return False
+        required = ('id', 'speaker', 'text', 'children')
+        if any(key not in node for key in required):
+            return False
+        if not isinstance(node.get('id'), str):
+            return False
+        if not isinstance(node.get('speaker'), str):
+            return False
+        if not isinstance(node.get('text'), str):
+            return False
+        if not isinstance(node.get('children'), list):
+            return False
+        return all(valid_node(child) for child in node.get('children'))
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        'INSERT INTO files(name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)' 
-        ' ON CONFLICT(name) DO UPDATE SET size=excluded.size, uploadDate=excluded.uploadDate, type=excluded.type, path=excluded.path, structure_ok=excluded.structure_ok, category=excluded.category',
-        (name, size, uploadDate, ftype, relpath, struct_flag, category),
-    )
-    conn.commit()
-    # fetch id and return full record
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files WHERE name = ?', (name,))
-    row = cur.fetchone()
-    conn.close()
-    if row:
-        return {"id": row[0], "name": row[1], "size": row[2], "uploadDate": row[3], "type": row[4], "path": row[5], "structure_ok": row[6], "category": row[7]}
-    return {"name": name, "size": size, "uploadDate": uploadDate, "type": ftype, "path": relpath, "category": category}
+    if isinstance(data, dict) and all(k in data for k in ('fileRef', 'users', 'tree', 'discussion')):
+        tree_ok = isinstance(data.get('tree'), dict) and valid_node(data['tree'])
+        discussion_ok = isinstance(data.get('discussion'), list)
+        if tree_ok and discussion_ok:
+            return 1, 'draft'
+        return 0, 'invalid'
+
+    if isinstance(data, dict) and all(k in data for k in ('users', 'tree')):
+        tree_ok = isinstance(data.get('tree'), dict) and valid_node(data['tree'])
+        users_ok = isinstance(data.get('users'), list)
+        if tree_ok and users_ok:
+            return 1, 'discussion'
+        return 0, 'invalid'
+
+    return 0, 'invalid'
+
+
+def _upsert_file_record(path: str, *, created_by: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        return supabase_upsert_file_record(
+            path,
+            BACKEND_DIR,
+            _classify_file,
+            created_by=created_by,
+        )
+    except RuntimeError as exc:
+        logger.error("Failed to upsert metadata for %s: %s", path, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def _delete_file_record(name: str) -> None:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('DELETE FROM files WHERE name = ?', (name,))
-    conn.commit()
-    conn.close()
+    try:
+        supabase_delete_file_record(name)
+    except RuntimeError as exc:
+        logger.error("Failed to delete metadata for %s: %s", name, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _list_files_db() -> List[dict]:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT id, name, size, uploadDate, type, path, structure_ok, category FROM files')
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "name": r[1], "size": r[2], "uploadDate": r[3], "type": r[4], "path": r[5], "structure_ok": r[6], "category": r[7]} for r in rows
-    ]
+def _list_files_db() -> List[Dict[str, Any]]:
+    try:
+        return supabase_list_files_db()
+    except RuntimeError as exc:
+        logger.error("Failed to list files: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-# initialize DB on startup
-_init_db()
+def _load_file_record(identifier: Any) -> Optional[Dict[str, Any]]:
+    """Fetch a file record by numeric id or stored name/path."""
+    try:
+        file_id = int(identifier)
+    except (TypeError, ValueError):
+        file_id = None
+
+    try:
+        if file_id is not None:
+            return _get_file_record_by_id(file_id)
+        return _get_file_by_name_or_relpath(str(identifier))
+    except RuntimeError as exc:
+        logger.error("Failed to load metadata for %s: %s", identifier, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 # Allow frontend (Vue) to talk to backend
 app.add_middleware(
@@ -448,11 +272,7 @@ def _safe_path(rel_path: str) -> str:
 
 @app.post("/api/auth/register")
 async def register_user(request: Request):
-    """Register a new user with email and password.
-
-    Expects JSON body: { "email": "user@example.com", "password": "..." }
-    Returns a JWT access token and basic user info.
-    """
+    """Register a new Supabase user via the backend proxy."""
     try:
         body = await request.json()
     except Exception:
@@ -462,7 +282,7 @@ async def register_user(request: Request):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object")
 
     email = (body.get("email") or "").strip()
-    password = body.get("password") or ""
+    password = (body.get("password") or "").strip()
 
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required")
@@ -471,26 +291,15 @@ async def register_user(request: Request):
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
 
-    existing = _get_user_by_email(email)
-    if existing is not None:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    user = _create_user(email, password)
-    access_token = _create_access_token({"sub": user["email"]})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {"id": user["id"], "email": user["email"], "created_at": user["created_at"]},
-    }
+    payload = {"email": email, "password": password}
+    supabase_response = await _supabase_auth_post("/signup", payload)
+    logger.info(f"Response from Supabase signup for {email}: {supabase_response}")
+    return supabase_response
 
 
 @app.post("/api/auth/login")
 async def login_user(request: Request):
-    """Authenticate a user with email and password.
-
-    Expects JSON body: { "email": "user@example.com", "password": "..." }
-    Returns a JWT access token and basic user info.
-    """
+    """Authenticate a user through Supabase and return the issued tokens."""
     try:
         body = await request.json()
     except Exception:
@@ -500,24 +309,19 @@ async def login_user(request: Request):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object")
 
     email = (body.get("email") or "").strip()
-    password = body.get("password") or ""
+    password = (body.get("password") or "").strip()
 
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required")
 
-    user = _get_user_by_email(email)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-
-    if not _verify_password(password, user["password_hash"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-
-    access_token = _create_access_token({"sub": user["email"]})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {"id": user["id"], "email": user["email"], "created_at": user["created_at"]},
-    }
+    payload = {"email": email, "password": password}
+    logger.debug(f"Attempting login for credent: {email}")
+    supabase_response = await _supabase_auth_post(
+        "/token",
+        payload,
+        params={"grant_type": "password"},
+    )
+    return supabase_response
 
 
 @app.get("/api/auth/me")
@@ -644,7 +448,7 @@ def _atomic_write_json(full_path: str, data: any, ensure_ascii: bool = False) ->
 
 @app.get("/api/files")
 def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
-    """List available files from the SQLite metadata table.
+    """List available files from the Supabase metadata table.
 
     If folder is provided it filters results to that subfolder (relative to files_root).
     If DB is empty it will scan FILES_ROOT (or the provided folder) to populate the DB.
@@ -713,18 +517,16 @@ def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
 @app.get('/api/files/id/{file_id}')
 def get_file_by_id(file_id: int, download: bool = False):
     """Return file metadata or JSON content when targeting by numeric id."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    # Debug: log DB lookup results to help diagnose missing files
-    logger = logging.getLogger('uvicorn.error')
-    if not row:
+    try:
+        record = _get_file_record_by_id(file_id)
+    except RuntimeError as exc:
+        logger.error("Failed to load Supabase metadata for id=%s: %s", file_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not record:
         raise HTTPException(status_code=404, detail='File not found')
-    # row -> (name, path)
-    relpath = row[1]
-    # Resolve stored path robustly using helper (handles 'files_root/..' and legacy forms)
+
+    relpath = record.get('path') or record.get('rel_path')
     full = _resolve_stored_relpath(relpath)
     files_root_norm = os.path.normpath(FILES_ROOT)
     if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
@@ -766,25 +568,22 @@ def get_file(filename: str, download: bool = False):
     # in the DB (files may live in subfolders created by the app and the UI may
     # request them by filename only).
     if not os.path.exists(full):
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        # Try to find a DB entry where the stored name or path matches the requested value
-        cur.execute('SELECT path FROM files WHERE name = ? OR path = ?', (filename, filename))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            row = _get_file_by_name_or_relpath(filename)
+        except RuntimeError as exc:
+            logger.error("Failed to resolve %s via Supabase metadata: %s", filename, exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
         if row:
-            relpath = row[0]
-            # Resolve a stored DB path robustly
+            relpath = row.get('path') or row.get('rel_path')
             try:
                 candidate = _resolve_stored_relpath(relpath)
             except Exception:
                 candidate = None
-            # Ensure candidate is inside FILES_ROOT for safety and exists on disk
             files_root_norm = os.path.normpath(FILES_ROOT)
             if candidate and (candidate == files_root_norm or candidate.startswith(files_root_norm + os.sep)) and os.path.exists(candidate):
                 full = candidate
             else:
-                # no DB match or file missing
                 raise HTTPException(status_code=404, detail="File not found")
         else:
             raise HTTPException(status_code=404, detail="File not found")
@@ -810,15 +609,11 @@ def get_file(filename: str, download: bool = False):
 @app.patch('/api/files/id/{file_id}')
 async def save_changes_file_by_id(file_id: int, request: Request):
     """Save changes to a JSON file identified by numeric id."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
+    record = _load_file_record(file_id)
+    if not record:
         raise HTTPException(status_code=404, detail='File not found')
-    name = row[0]
-    relpath = row[1]
+    name = record.get('name')
+    relpath = record.get('path') or record.get('rel_path')
     # Resolve stored path robustly (support legacy entries)
     full = _resolve_stored_relpath(relpath)
     logger = logging.getLogger('uvicorn.error')
@@ -925,15 +720,11 @@ async def save_changes_file_by_name(filename: str, request: Request):
 
 @app.delete('/api/files/id/{file_id}')
 def delete_file_by_id(file_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('SELECT name, path FROM files WHERE id = ?', (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
+    record = _load_file_record(file_id)
+    if not record:
         raise HTTPException(status_code=404, detail='File not found')
-    name = row[0]
-    relpath = row[1]
+    name = record.get('name') or str(file_id)
+    relpath = record.get('path') or record.get('rel_path')
     # Resolve stored path robustly (support legacy entries)
     full = _resolve_stored_relpath(relpath)
     if os.path.exists(full):
@@ -941,7 +732,6 @@ def delete_file_by_id(file_id: int):
             os.remove(full)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to remove file: {e}')
-    # remove db record
     _delete_file_record(name)
     return {"message": "Deleted", "file": name, "id": file_id}
 
@@ -992,28 +782,34 @@ def delete_file(filename: str):
     if not os.path.exists(full):
         raise HTTPException(status_code=404, detail="File not found")
     os.remove(full)
-    # delete DB record if present, return id if available
+
+    record = None
+    rel_identifier = os.path.relpath(full, BACKEND_DIR)
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        rel = os.path.relpath(full, BACKEND_DIR)
-        cur.execute('SELECT id FROM files WHERE path = ?', (rel,))
-        row = cur.fetchone()
-        if not row:
-            cur.execute('SELECT id FROM files WHERE name = ?', (os.path.basename(filename),))
-            row = cur.fetchone()
-        file_id = row[0] if row else None
-        conn.close()
-        # delete by name to keep compatibility
-        _delete_file_record(os.path.basename(filename))
+        record = _load_file_record(rel_identifier)
+        if not record:
+            record = _load_file_record(os.path.basename(filename))
+    except HTTPException:
+        raise
     except Exception:
-        file_id = None
+        record = None
+
+    file_id = record.get('id') if record else None
+    try:
+        _delete_file_record(os.path.basename(filename))
+    except HTTPException as exc:
+        # If Supabase deletion fails we should inform the caller
+        raise exc
+    except Exception as exc:
+        logger.error("Failed to delete Supabase metadata for %s: %s", filename, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     return {"message": "Deleted", "file": filename, "id": file_id}
 
 
 @app.post('/api/migrate-files')
 def migrate_files():
-    """Scan backend directory for allowed files and populate/update the SQLite metadata table."""
+    """Scan backend directory for allowed files and populate/update the Supabase metadata table."""
     allowed_exts = {'.json', '.pkl', '.csv'}
     entries = []
     for root, _, files in os.walk(FILES_ROOT):
@@ -1095,43 +891,30 @@ def move_files_endpoint(data: dict):
 
     os.makedirs(dest_full, exist_ok=True)
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
     moved = []
     errors = []
 
     for t in targets:
-        # resolve target to stored path and name
-        row = None
         try:
-            tid = int(t)
-            cur.execute('SELECT name, path FROM files WHERE id = ?', (tid,))
-            row = cur.fetchone()
-        except Exception:
-            # try by path or name
-            cur.execute('SELECT id, name, path FROM files WHERE path = ? OR name = ?', (t, os.path.basename(str(t))))
-            row = cur.fetchone()
+            record = _load_file_record(t)
+        except HTTPException as exc:
+            errors.append({'target': t, 'error': exc.detail})
+            continue
+        except Exception as exc:
+            errors.append({'target': t, 'error': str(exc)})
+            continue
 
-        if not row:
+        if not record:
             errors.append({'target': t, 'error': 'not found in DB'})
             continue
 
-        # row may be (name,path) or (id,name,path)
-        if len(row) == 2:
-            name, relpath = row
-        else:
-            _, name, relpath = row
-
-        # Resolve stored path robustly. Newer records store a path relative to BACKEND_DIR
-        # (e.g. 'files_root/..'), older/legacy records may store just the filename or a
-        # path relative to FILES_ROOT. Try both interpretations.
+        relpath = record.get('path') or record.get('rel_path') or record.get('name')
         try:
             src_full = _resolve_stored_relpath(relpath)
         except Exception:
             errors.append({'target': t, 'error': 'invalid stored path'})
             continue
 
-        # ensure the resolved file is inside FILES_ROOT
         files_root_norm = os.path.normpath(FILES_ROOT)
         if not (src_full == files_root_norm or src_full.startswith(files_root_norm + os.sep)):
             errors.append({'target': t, 'error': 'invalid stored path'})
@@ -1142,17 +925,14 @@ def move_files_endpoint(data: dict):
 
         dest_full_path = os.path.join(dest_full, os.path.basename(src_full))
         try:
-            # overwrite if exists
             if os.path.exists(dest_full_path):
                 os.remove(dest_full_path)
             shutil.move(src_full, dest_full_path)
-            # update DB record for new path
-            rec = _upsert_file_record(dest_full_path)
+            rec = _upsert_file_record(dest_full_path, created_by=record.get('created_by'))
             moved.append({'target': t, 'moved_to': rec.get('path'), 'id': rec.get('id')})
         except Exception as e:
             errors.append({'target': t, 'error': str(e)})
 
-    conn.close()
     return {'moved': moved, 'errors': errors}
 
 
@@ -1203,14 +983,13 @@ def delete_folder(folder_path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to remove folder: {e}')
 
-    # Remove DB records for files that lived under this folder
+    # Remove Supabase records for files that lived under this folder
     relprefix = os.path.normpath(os.path.join('files_root', folder_path))
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM files WHERE path LIKE ?", (relprefix + '%',))
-    removed = cur.rowcount
-    conn.commit()
-    conn.close()
+    try:
+        removed = _delete_files_with_prefix(relprefix)
+    except RuntimeError as exc:
+        logger.error("Failed to delete Supabase rows for prefix %s: %s", relprefix, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"deleted": True, "path": folder_path, "db_files_removed": removed}
 
@@ -1378,22 +1157,16 @@ async def preview_file_fix(file_id: int):
     Preview the LLM-suggested fix without applying it.
     Returns both the original and fixed data for user review.
     """
-    # Get file info from database
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    
-    if not row:
+    record = _load_file_record(file_id)
+    if not record:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
-    
-    name, rel_path = row
-    
-    # Normalize path
+
+    name = record.get('name') or str(file_id)
+    rel_path = record.get('path') or record.get('rel_path') or name
+
     if rel_path.startswith('files_root/'):
         rel_path = rel_path[len('files_root/'):]
-    
+
     full_path = os.path.join(FILES_ROOT, rel_path)
     
     if not os.path.exists(full_path):
@@ -1441,22 +1214,16 @@ async def apply_file_fix(file_id: int, request: Request):
     Apply the LLM-suggested fix after user confirmation.
     Creates a backup before overwriting the original file.
     """
-    # Get file info from database
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT name, path FROM files WHERE id = ?", (file_id,))
-    row = cur.fetchone()
-    conn.close()
-    
-    if not row:
+    record = _load_file_record(file_id)
+    if not record:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
-    
-    name, rel_path = row
-    
-    # Normalize path
+
+    name = record.get('name') or str(file_id)
+    rel_path = record.get('path') or record.get('rel_path') or name
+
     if rel_path.startswith('files_root/'):
         rel_path = rel_path[len('files_root/'):]
-    
+
     full_path = os.path.join(FILES_ROOT, rel_path)
     
     if not os.path.exists(full_path):
@@ -1483,12 +1250,11 @@ async def apply_file_fix(file_id: int, request: Request):
             if backup_created:
                 shutil.copy2(backup_path, full_path)
             raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
-        # Update the database to mark structure as OK
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("UPDATE files SET structure_ok = 1 WHERE id = ?", (file_id,))
-        conn.commit()
-        conn.close()
+        try:
+            _set_structure_flag(file_id, True)
+        except RuntimeError as exc:
+            logger.error("Failed to update structure flag for %s: %s", file_id, exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
     else:
         # Save as new file with _fix suffix
         base, ext = os.path.splitext(name)
@@ -1502,21 +1268,8 @@ async def apply_file_fix(file_id: int, request: Request):
                 json.dump(to_write, f, indent=2, ensure_ascii=False)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
-        # Insert new file into DB
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("INSERT INTO files (name, size, uploadDate, type, path, structure_ok, category) VALUES (?, ?, ?, ?, ?, ?, ?)", (
-            new_name,
-            os.path.getsize(new_full_path),
-            datetime.now().isoformat(),
-            'json',
-            f'files_root/{new_rel_path}',
-            1,
-            'discussion'
-        ))
-        conn.commit()
-        new_file_id = cur.lastrowid
-        conn.close()
+        rec = _upsert_file_record(new_full_path)
+        new_file_id = rec.get('id', file_id)
     return {
         "success": True,
         "message": "File successfully fixed and saved",

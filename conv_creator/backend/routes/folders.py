@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException
 import os
 import shutil
-import sqlite3
 
+from database import _delete_files_with_prefix
 from file_utils import _safe_path
-from config import DB_PATH, FILES_ROOT
+from config import FILES_ROOT
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
@@ -50,11 +50,6 @@ def delete_folder(folder_path: str):
         raise HTTPException(status_code=500, detail=f'Failed to remove folder: {e}')
 
     relprefix = os.path.normpath(os.path.join('files_root', folder_path))
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM files WHERE path LIKE ?", (relprefix + '%',))
-    removed = cur.rowcount
-    conn.commit()
-    conn.close()
+    removed = _delete_files_with_prefix(relprefix)
 
     return {"deleted": True, "path": folder_path, "db_files_removed": removed}
