@@ -22,6 +22,65 @@ def valid_node(node: Any) -> bool:
             return False
     return True
 
+def _value_is_nonempty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) > 0
+    return True
+
+
+def _message_entry_has_content(entry: dict) -> bool:
+    values = entry.get('values')
+    if isinstance(values, dict):
+        return any(_value_is_nonempty(v) for v in values.values())
+
+    return bool(
+        entry.get('labels')
+        or (isinstance(entry.get('note'), str) and entry.get('note', '').strip())
+        or entry.get('rating') is not None
+    )
+
+
+def _annotation_status_from_json(data: Any) -> Optional[str]:
+    """Return annotation workflow status when the file contains annotation data."""
+    if not isinstance(data, dict):
+        return None
+
+    annotations = data.get('annotations')
+    if not isinstance(annotations, dict):
+        return None
+
+    status = annotations.get('status')
+    if status not in ('in_progress', 'completed'):
+        return None
+
+    messages = annotations.get('messages')
+    has_message_annotations = isinstance(messages, list) and any(
+        _message_entry_has_content(entry)
+        for entry in messages
+        if isinstance(entry, dict)
+    )
+
+    conversation_values = annotations.get('conversationValues')
+    has_conversation_values = isinstance(conversation_values, dict) and any(
+        _value_is_nonempty(value)
+        for value in conversation_values.values()
+    )
+    has_overall_note = isinstance(annotations.get('overallNote'), str) and annotations['overallNote'].strip()
+    has_overall_note = has_overall_note or (
+        isinstance(conversation_values, dict)
+        and isinstance(conversation_values.get('overallNote'), str)
+        and conversation_values['overallNote'].strip()
+    )
+
+    if status == 'completed' or has_message_annotations or has_overall_note:
+        return status
+    return None
+
+
 def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
     """Classify a JSON file and return structure_ok and category.
 

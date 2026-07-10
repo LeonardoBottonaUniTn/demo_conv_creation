@@ -2,7 +2,7 @@
   <div class="modal-overlay" @click.self="close">
     <div class="modal-panel">
       <header class="modal-header">
-        <h2>Select a discussion file</h2>
+        <h2>{{ title }}</h2>
         <button class="close" @click="close">✕</button>
       </header>
 
@@ -20,8 +20,17 @@
               :class="{ selected: selectedId === f.id }"
               @click="select(f)"
             >
-              <div class="name">{{ f.name }}</div>
-              <div class="meta">{{ f.type.toUpperCase() }} • {{ formatBytes(f.size) }}</div>
+              <div class="file-row-main">
+                <div class="name">{{ f.name }}</div>
+                <div class="meta">{{ f.type.toUpperCase() }} • {{ formatBytes(f.size) }}</div>
+              </div>
+              <span
+                v-if="f.annotationStatus"
+                class="annotation-pill"
+                :class="f.annotationStatus"
+              >
+                {{ f.annotationStatus === 'completed' ? 'Annotated' : 'Annotating' }}
+              </span>
             </li>
           </ul>
         </div>
@@ -29,7 +38,7 @@
 
       <footer class="modal-footer">
         <button class="secondary" @click="close">Cancel</button>
-        <button class="primary" :disabled="!selectedId" @click="confirm">Open Discussion</button>
+        <button class="primary" :disabled="!selectedId" @click="confirm">{{ confirmLabel }}</button>
       </footer>
     </div>
   </div>
@@ -37,13 +46,27 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useAuthFetch } from '../../composables/useAuthFetch'
 
 interface FileItem {
   id: string
   name: string
   type: string
   size: number
+  path?: string
+  annotationStatus?: 'in_progress' | 'completed' | null
 }
+
+withDefaults(
+  defineProps<{
+    title?: string
+    confirmLabel?: string
+  }>(),
+  {
+    title: 'Select a discussion file',
+    confirmLabel: 'Open Discussion',
+  },
+)
 
 const emit = defineEmits<{
   (e: 'select', fileName: string): void
@@ -58,11 +81,13 @@ const query = ref('')
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://127.0.0.1:8000'
 
+const { authFetch } = useAuthFetch()
+
 const fetchFiles = async () => {
   loading.value = true
   error.value = null
   try {
-    const res = await fetch(`${API_BASE}/api/files`)
+    const res = await authFetch(`${API_BASE}/api/files`)
     if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
     const list = await res.json()
     files.value = list.map((f: any) => {
@@ -75,6 +100,7 @@ const fetchFiles = async () => {
         path: normalized,
         type: f.type,
         size: f.size,
+        annotationStatus: f.annotation_status ?? null,
       }
     })
   } catch (err: any) {
@@ -163,7 +189,26 @@ const formatBytes = (bytes: number) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   cursor: pointer;
+}
+.file-row-main {
+  min-width: 0;
+}
+.annotation-pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: white;
+}
+.annotation-pill.in_progress {
+  background: #f59e0b;
+  color: #451a03;
+}
+.annotation-pill.completed {
+  background: #8b5cf6;
 }
 .files-list li.selected {
   background: #f1f7ff;

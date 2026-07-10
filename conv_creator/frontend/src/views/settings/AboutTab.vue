@@ -8,7 +8,7 @@
     <div class="about-grid">
       <article>
         <h4>Infrastructure</h4>
-        <p>Built with Vue 3, Vite, and a Groq-compatible backend.</p>
+        <p>Built with Vue 3, Vite, and OpenAI/Groq-compatible LLM backends.</p>
       </article>
       <article>
         <h4>Support</h4>

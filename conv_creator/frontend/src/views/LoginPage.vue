@@ -50,11 +50,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthState } from '../composables/useAuthState'
 
 const router = useRouter()
+const route = useRoute()
 const { setAuth } = useAuthState()
 
 const email = ref('')
@@ -83,7 +84,20 @@ async function callAuth(path: string, body: Record<string, unknown>) {
     }
     throw new Error(detail)
   }
-  return (await res.json()) as { access_token: string; user: { email: string } }
+  return (await res.json()) as {
+    access_token: string
+    refresh_token?: string
+    user: { email: string }
+  }
+}
+
+function redirectAfterLogin() {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : null
+  if (redirect && redirect !== '/login') {
+    router.push(redirect)
+    return
+  }
+  router.push({ name: 'home' })
 }
 
 async function onSubmit() {
@@ -94,8 +108,8 @@ async function onSubmit() {
       email: email.value,
       password: password.value,
     })
-    setAuth(data.access_token, data.user.email)
-    router.push({ name: 'home' })
+    setAuth(data.access_token, data.user.email, data.refresh_token)
+    redirectAfterLogin()
   } catch (e: any) {
     error.value = e?.message || 'Login failed'
   } finally {
@@ -111,8 +125,8 @@ async function registerAccount() {
       email: email.value,
       password: password.value,
     })
-    setAuth(data.access_token, data.user.email)
-    router.push({ name: 'home' })
+    setAuth(data.access_token, data.user.email, data.refresh_token)
+    redirectAfterLogin()
   } catch (e: any) {
     error.value = e?.message || 'Registration failed'
   } finally {

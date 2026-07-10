@@ -1,0 +1,7 @@
+# Local Supabase auth settings.
+# For hosted projects, set the same values in:
+# Dashboard → Authentication → Settings → JWT expiry
+
+[auth]
+enabled = true
+jwt_expiry = 2592000

@@ -37,21 +37,28 @@ class DatabaseSupabaseTests(unittest.TestCase):
         """Ensure payload includes classification and author metadata."""
 
         table_mock = MagicMock()
-        table_mock.upsert.return_value = table_mock
         table_mock.select.return_value = table_mock
+        table_mock.eq.return_value = table_mock
+        table_mock.limit.return_value = table_mock
+        table_mock.insert.return_value = table_mock
+
+        captured: dict[str, object] = {}
 
         def execute_side_effect(*_args, **_kwargs):
-            payload = table_mock.upsert.call_args.args[0]
-            supabase_row = dict(payload)
-            supabase_row.update(
-                {
-                    "id": 99,
-                    "structure_ok": True,
-                    "created_at": "2024-01-01T00:00:00Z",
-                    "updated_at": "2024-01-01T00:00:00Z",
-                }
-            )
-            return SimpleNamespace(data=[supabase_row], error=None)
+            if table_mock.insert.called:
+                payload = table_mock.insert.call_args.args[0]
+                captured["payload"] = payload
+                supabase_row = dict(payload)
+                supabase_row.update(
+                    {
+                        "id": 99,
+                        "structure_ok": True,
+                        "created_at": "2024-01-01T00:00:00Z",
+                        "updated_at": "2024-01-01T00:00:00Z",
+                    }
+                )
+                return SimpleNamespace(data=[supabase_row], error=None)
+            return SimpleNamespace(data=[], error=None)
 
         table_mock.execute.side_effect = execute_side_effect
 
@@ -69,11 +76,11 @@ class DatabaseSupabaseTests(unittest.TestCase):
                 created_by="user-42",
             )
 
-        payload = table_mock.upsert.call_args.args[0]
+        payload = captured["payload"]
         self.assertEqual(payload["name"], "sample.json")
         self.assertEqual(payload["created_by"], "user-42")
         self.assertTrue(payload["structure_ok"])
-        self.assertEqual(table_mock.upsert.call_args.kwargs["on_conflict"], "name")
+        table_mock.insert.assert_called_once()
         self.assertEqual(record["id"], 99)
         self.assertEqual(record["structure_ok"], 1)
 
@@ -82,6 +89,7 @@ class DatabaseSupabaseTests(unittest.TestCase):
 
         select_table = MagicMock()
         select_table.select.return_value = select_table
+        select_table.eq.return_value = select_table
         select_table.like.return_value = select_table
         select_table.execute.return_value = SimpleNamespace(data=[{"id": 1}, {"id": 2}], error=None)
 
@@ -94,11 +102,12 @@ class DatabaseSupabaseTests(unittest.TestCase):
         client_mock.table.side_effect = [select_table, delete_table]
 
         with patch("database.get_supabase_client", return_value=client_mock):
-            removed = database._delete_files_with_prefix("drafts/")
+            removed = database._delete_files_with_prefix("drafts/", "user-42")
 
         self.assertEqual(removed, 2)
         delete_table.in_.assert_called_once_with("id", [1, 2])
         select_table.like.assert_called_once_with("rel_path", "drafts/%")
+        select_table.eq.assert_called_once_with("created_by", "user-42")
 
     def test_get_file_record_by_id_normalizes_supabase_row(self) -> None:
         """Supabase rows with datetime + bool fields become API-friendly dicts."""
@@ -126,13 +135,14 @@ class DatabaseSupabaseTests(unittest.TestCase):
         client_mock.table.return_value = table_mock
 
         with patch("database.get_supabase_client", return_value=client_mock):
-            row = database._get_file_record_by_id(7)
+            row = database._get_file_record_by_id(7, "user-42")
 
         self.assertEqual(row["id"], 7)
         self.assertEqual(row["name"], "tree.json")
         self.assertEqual(row["structure_ok"], 1)
         self.assertIn("T", row["uploadDate"])
-        table_mock.eq.assert_called_once_with("id", 7)
+        table_mock.eq.assert_any_call("created_by", "user-42")
+        table_mock.eq.assert_any_call("id", 7)
 
 
 if __name__ == "__main__":

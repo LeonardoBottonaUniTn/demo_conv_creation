@@ -1,6 +1,7 @@
 // Composable for managing graph data and state
 import { ref, computed } from 'vue'
 import type { ArgumentNode, BranchesData } from '../types/graph'
+import { useAuthFetch } from './useAuthFetch'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
 
@@ -8,6 +9,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:
 const discussionRoot = ref<any>(null)
 
 export function useGraphData() {
+  const { authFetch } = useAuthFetch()
   const discussionBranches = ref<BranchesData>([])
   const selectedBranch = ref(0)
   const loading = ref(true)
@@ -27,7 +29,7 @@ export function useGraphData() {
         // use encodeURI so that folder separators ('/') are preserved for path parameters
         const tryUrl = `${API_BASE}/api/files/${encodeURI(filename)}`
         console.debug('[useGraphData] requesting discussion file URL:', tryUrl)
-        res = await fetch(tryUrl)
+        res = await authFetch(tryUrl)
 
         // If backend couldn't find the provided path, try the basename as a fallback
         if (!res.ok && res.status === 404) {
@@ -35,7 +37,7 @@ export function useGraphData() {
           if (base !== filename) {
             const tryBaseUrl = `${API_BASE}/api/files/${encodeURI(base)}`
             console.debug('[useGraphData] fallback to basename URL:', tryBaseUrl)
-            res = await fetch(tryBaseUrl)
+            res = await authFetch(tryBaseUrl)
           }
         }
 
@@ -43,7 +45,7 @@ export function useGraphData() {
         if (!res.ok && res.status === 404) {
           try {
             console.debug('[useGraphData] attempting DB lookup for', filename)
-            const listRes = await fetch(`${API_BASE}/api/files`)
+            const listRes = await authFetch(`${API_BASE}/api/files`)
             if (listRes.ok) {
               const list = await listRes.json()
               const normalizedTarget = String(filename).replace(/^files_root[\\/]/, '')
@@ -62,7 +64,7 @@ export function useGraphData() {
               }
               if (matched && matched.id) {
                 console.debug('[useGraphData] found DB record, fetching by id:', matched.id)
-                res = await fetch(`${API_BASE}/api/files/id/${matched.id}`)
+                res = await authFetch(`${API_BASE}/api/files/id/${matched.id}`)
               }
             }
           } catch (e) {

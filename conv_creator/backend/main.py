@@ -1,3 +1,129 @@
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request, Depends, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
+import sys
+import json
+import sqlite3
+import shutil
+import time
+import re
+from typing import List, Optional, Dict, Any, Tuple
+import logging
+from datetime import datetime
+import httpx
+
+from dotenv import load_dotenv
+from postgrest.exceptions import APIError
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BACKEND_DIR)
+for env_path in (os.path.join(ROOT_DIR, ".env"), os.path.join(BACKEND_DIR, ".env")):
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=True)
+        break
+
+from jose import JWTError, jwk, jwt
+from jose.utils import base64url_decode
+
+try:
+    # Works when running as package import (e.g. `uvicorn backend.main:app`)
+    from .supabase_client import (
+        get_jwks,
+        get_supabase_anon_key,
+        get_supabase_client,
+        get_supabase_url,
+    )
+except ImportError:
+    # Works when running from backend dir (e.g. `uvicorn main:app`)
+    from supabase_client import (
+        get_jwks,
+        get_supabase_anon_key,
+        get_supabase_client,
+        get_supabase_url,
+    )
+
+# Add backend directory to Python path so we can import scripts module
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+# Now we can import from scripts
+from scripts.llm_calls import transform_discussion_json, generate_user_bio, generate_message_rewrite
+
+try:
+    from .database import (
+        _delete_file_record as supabase_delete_file_record,
+        _delete_file_record_by_id as supabase_delete_file_record_by_id,
+        _delete_files_with_prefix,
+        _get_file_by_name_or_relpath,
+        _get_file_record_by_id,
+        _list_files_db as supabase_list_files_db,
+        _set_structure_flag,
+        _upsert_file_metadata as supabase_upsert_file_metadata,
+        _upsert_file_record as supabase_upsert_file_record,
+    )
+    from .file_storage import (
+        ALLOWED_UPLOAD_EXTS,
+        db_rel_path,
+        delete_object,
+        delete_prefix,
+        download_bytes,
+        list_all_folder_names,
+        list_folder_names,
+        move_object,
+        normalize_user_rel_path,
+        public_path_from_storage_key,
+        storage_key,
+        storage_key_from_record,
+        upload_bytes,
+        walk_user_files,
+    )
+except ImportError:
+    from database import (
+        _delete_file_record as supabase_delete_file_record,
+        _delete_file_record_by_id as supabase_delete_file_record_by_id,
+        _delete_files_with_prefix,
+        _get_file_by_name_or_relpath,
+        _get_file_record_by_id,
+        _list_files_db as supabase_list_files_db,
+        _set_structure_flag,
+        _upsert_file_metadata as supabase_upsert_file_metadata,
+        _upsert_file_record as supabase_upsert_file_record,
+    )
+    from file_storage import (
+        ALLOWED_UPLOAD_EXTS,
+        db_rel_path,
+        delete_object,
+        delete_prefix,
+        download_bytes,
+        list_all_folder_names,
+        list_folder_names,
+        move_object,
+        normalize_user_rel_path,
+        public_path_from_storage_key,
+        storage_key,
+        storage_key_from_record,
+        upload_bytes,
+        walk_user_files,
+    )
+
+# FastAPI app
+app = FastAPI()
+
+# Configuration
+# Use the already computed absolute BACKEND_DIR (set earlier using
+# os.path.dirname(os.path.abspath(__file__))). Avoid reassigning to
+# os.path.dirname(__file__) which can be a relative path depending on
+# how the application is started (this caused incorrect FILES_ROOT
+# resolution and 'file not found' errors).
+FILES_ROOT = os.path.join(BACKEND_DIR, 'files_root')
+if not os.path.exists(FILES_ROOT):
+    os.makedirs(FILES_ROOT, exist_ok=True)
+    # Log when we create the folder so startup logs contain useful info
+    logger = logging.getLogger('uvicorn.error')
+    logger.error(f"Created FILES_ROOT directory at: {FILES_ROOT}")
 else:
     logger = logging.getLogger('uvicorn.error')
     logger.info(f"Using existing FILES_ROOT: {FILES_ROOT}")
@@ -12,26 +138,54 @@ logger.info(f"BACKEND_DIR={BACKEND_DIR} FILES_ROOT={FILES_ROOT}")
 
 # Supabase Auth configuration
 SUPABASE_URL = get_supabase_url()
+SUPABASE_AUTH_URL = f"{SUPABASE_URL.rstrip('/')}/auth/v1"
+logger.info("Supabase auth host: %s", SUPABASE_URL.replace("https://", "").replace("http://", "").split("/")[0])
 auth_scheme = HTTPBearer(auto_error=False)
 
 # LLM configuration (available model choices for the UI and defaults)
-AVAILABLE_LLM_MODELS: List[str] = [
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
-]
-DEFAULT_LLM_MODEL: str = AVAILABLE_LLM_MODELS[0]
+LLM_PROVIDERS: List[str] = ["groq", "openai"]
+DEFAULT_LLM_PROVIDER: str = "groq"
+AVAILABLE_LLM_MODELS: Dict[str, List[str]] = {
+    "groq": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+    ],
+    "openai": [
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4o",
+        "gpt-4o-mini",
+    ],
+}
+# Map retired or renamed model IDs to current supported ones.
+LEGACY_MODEL_ALIASES: Dict[str, str] = {
+    "meta-llama/llama-4-maverick-17b-128e-instruct": "llama-3.3-70b-versatile",
+    "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
+    "gpt-4-turbo": "gpt-4.1",
+    "gpt-4-turbo-2024-04-09": "gpt-4.1",
+    "gpt-3.5-turbo": "gpt-4o-mini",
+}
+DEFAULT_LLM_MODEL_BY_PROVIDER: Dict[str, str] = {
+    provider: models[0] for provider, models in AVAILABLE_LLM_MODELS.items()
+}
+LLM_PROVIDER_LABELS: Dict[str, str] = {
+    "groq": "Groq",
+    "openai": "OpenAI",
+}
 
 
-
-
-def _require_supabase_key(env_var: str) -> str:
-    value = os.getenv(env_var)
-    if not value:
-        raise RuntimeError(f"Environment variable {env_var} must be set for Supabase integration")
-    return value
 
 
 def _build_supabase_auth_headers(*, use_service: bool = False) -> Dict[str, str]:
-    key = _require_supabase_key("SUPABASE_SERVICE_ROLE_KEY" if use_service else "DATABASE_ANON_KEY")
+    if use_service:
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not key:
+            raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY must be set for Supabase admin auth")
+    else:
+        key = get_supabase_anon_key()
     return {
         "apikey": key,
         "Authorization": f"Bearer {key}",
@@ -40,7 +194,8 @@ def _build_supabase_auth_headers(*, use_service: bool = False) -> Dict[str, str]
 
 
 async def _supabase_auth_post(path: str, payload: Dict[str, Any], *, params: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    url = f"{SUPABASE_AUTH_URL}{path}"
+    auth_base = f"{get_supabase_url().rstrip('/')}/auth/v1"
+    url = f"{auth_base}{path}"
     headers = _build_supabase_auth_headers()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -60,6 +215,8 @@ async def _supabase_auth_post(path: str, payload: Dict[str, Any], *, params: Opt
             )
         except Exception:
             pass
+        if response.status_code == 429:
+            detail = detail or "Too many auth attempts. Please wait a few minutes and try again."
         raise HTTPException(status_code=response.status_code, detail=detail)
     return response.json()
 
@@ -71,7 +228,13 @@ def _decode_supabase_token(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token header") from exc
 
     kid = header.get("kid")
-    jwks = get_jwks()
+    try:
+        jwks = get_jwks()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to verify auth token with Supabase",
+        ) from exc
     key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
     if not key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown token key")
@@ -103,24 +266,244 @@ def _build_user_from_claims(claims: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _get_user_settings(user_id: str) -> Optional[Dict[str, Any]]:
-    client = get_supabase_client()
-    response = (
-        client.table("user_settings")
-        .select("api_key, model, created_at, updated_at")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+DEFAULT_ANNOTATION_SCHEMA: Dict[str, Any] = {
+    "version": 1,
+    "messageFields": [
+        {
+            "id": "labels",
+            "label": "Labels",
+            "type": "labels",
+            "options": [
+                "Support",
+                "Attack",
+                "Question",
+                "Clarification",
+                "Neutral",
+                "Off-topic",
+            ],
+        },
+        {"id": "rating", "label": "Quality rating", "type": "rating"},
+        {
+            "id": "note",
+            "label": "Notes",
+            "type": "textarea",
+            "placeholder": "Add notes about this turn (stance, argument type, issues…)",
+        },
+    ],
+    "conversationFields": [
+        {
+            "id": "overallNote",
+            "label": "Overall notes",
+            "type": "textarea",
+            "placeholder": "Summary, quality assessment, or remarks about the whole conversation",
+        },
+    ],
+}
+
+
+def _normalize_annotation_field(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    field_type = raw.get("type")
+    valid_types = {"labels", "text", "textarea", "rating", "select", "number"}
+    if field_type not in valid_types:
+        return None
+    field_id = str(raw.get("id") or "").strip()
+    label = str(raw.get("label") or "").strip()
+    if not field_id or not label:
+        return None
+    options = raw.get("options")
+    normalized_options = (
+        [str(item).strip() for item in options if str(item).strip()]
+        if isinstance(options, list)
+        else []
     )
-    if response.error:
-        logger.error("Failed to load user settings for %s: %s", user_id, response.error)
-        raise HTTPException(status_code=500, detail="Failed to load user settings")
+    field: Dict[str, Any] = {
+        "id": field_id,
+        "label": label,
+        "type": field_type,
+    }
+    if field_type in ("labels", "select"):
+        field["options"] = normalized_options
+    elif normalized_options:
+        field["options"] = normalized_options
+    placeholder = raw.get("placeholder")
+    if isinstance(placeholder, str) and placeholder.strip():
+        field["placeholder"] = placeholder.strip()
+    if raw.get("required") is True:
+        field["required"] = True
+    return field
+
+
+def _normalize_annotation_schema(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        return json.loads(json.dumps(DEFAULT_ANNOTATION_SCHEMA))
+
+    raw_message_fields = raw.get("messageFields")
+    message_fields: List[Dict[str, Any]] = []
+    if isinstance(raw_message_fields, list):
+        for item in raw_message_fields:
+            field = _normalize_annotation_field(item)
+            if field:
+                message_fields.append(field)
+
+    raw_conversation_fields = raw.get("conversationFields")
+    conversation_fields: List[Dict[str, Any]] = []
+    if isinstance(raw_conversation_fields, list):
+        for item in raw_conversation_fields:
+            field = _normalize_annotation_field(item)
+            if field:
+                conversation_fields.append(field)
+
+    if not message_fields and not conversation_fields:
+        return json.loads(json.dumps(DEFAULT_ANNOTATION_SCHEMA))
+
+    return {
+        "version": 1,
+        "messageFields": message_fields,
+        "conversationFields": conversation_fields,
+    }
+
+
+_USER_SETTINGS_HAS_ANNOTATION_SCHEMA: Optional[bool] = None
+
+
+def _user_settings_select_columns() -> str:
+    base = "api_key, model, provider, created_at, updated_at"
+    if _USER_SETTINGS_HAS_ANNOTATION_SCHEMA is not False:
+        return f"{base}, annotation_schema"
+    return base
+
+
+def _mark_annotation_schema_unavailable() -> None:
+    global _USER_SETTINGS_HAS_ANNOTATION_SCHEMA
+    _USER_SETTINGS_HAS_ANNOTATION_SCHEMA = False
+    logger.warning(
+        "user_settings.annotation_schema column is missing. "
+        "Update DATABASE_IPv4_URL to match SUPABASE_URL, then run: "
+        "python backend/scripts/setup_db.py"
+    )
+
+
+def _is_missing_annotation_schema_error(exc: APIError) -> bool:
+    message = str(getattr(exc, "message", "") or "")
+    code = str(getattr(exc, "code", "") or "")
+    return code == "42703" and "annotation_schema" in message
+
+
+def _extract_supabase_project_ref(url: str) -> Optional[str]:
+    match = re.search(r"https?://([^.]+)\.supabase\.co", url or "")
+    return match.group(1) if match else None
+
+
+def _extract_database_project_ref(database_url: str) -> Optional[str]:
+    match = re.search(r"postgres(?:ql)?://postgres\.([^:@/]+)", database_url or "")
+    return match.group(1) if match else None
+
+
+def _ensure_annotation_schema_column() -> None:
+    global _USER_SETTINGS_HAS_ANNOTATION_SCHEMA
+
+    database_url = os.getenv("DATABASE_IPv4_URL") or os.getenv("DATABASE_URL")
+    if not database_url or database_url.startswith("https://"):
+        return
+
+    supabase_ref = _extract_supabase_project_ref(get_supabase_url())
+    db_ref = _extract_database_project_ref(database_url)
+    if not supabase_ref or not db_ref or supabase_ref != db_ref:
+        logger.info(
+            "Skipping annotation_schema migration: DATABASE URL project (%s) != SUPABASE_URL project (%s)",
+            db_ref,
+            supabase_ref,
+        )
+        return
+
+    try:
+        import psycopg2
+    except ImportError:
+        logger.warning("psycopg2 not installed; cannot auto-create annotation_schema column")
+        return
+
+    try:
+        with psycopg2.connect(database_url) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE public.user_settings "
+                    "ADD COLUMN IF NOT EXISTS annotation_schema jsonb;"
+                )
+        _USER_SETTINGS_HAS_ANNOTATION_SCHEMA = True
+        logger.info("Ensured user_settings.annotation_schema column exists.")
+    except Exception as exc:
+        logger.warning("Could not ensure annotation_schema column: %s", exc)
+
+
+def _get_user_settings(user_id: str) -> Optional[Dict[str, Any]]:
+    global _USER_SETTINGS_HAS_ANNOTATION_SCHEMA
+    client = get_supabase_client()
+    try:
+        response = (
+            client.table("user_settings")
+            .select(_user_settings_select_columns())
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if (
+            _USER_SETTINGS_HAS_ANNOTATION_SCHEMA is None
+            and "annotation_schema" in _user_settings_select_columns()
+        ):
+            _USER_SETTINGS_HAS_ANNOTATION_SCHEMA = True
+    except APIError as exc:
+        if (
+            _is_missing_annotation_schema_error(exc)
+            and _USER_SETTINGS_HAS_ANNOTATION_SCHEMA is not False
+        ):
+            _mark_annotation_schema_unavailable()
+            return _get_user_settings(user_id)
+        raise
+
     if not response.data:
         return None
     return response.data[0]
 
 
-def _upsert_user_settings(user_id: str, api_key: Optional[str], model: Optional[str]) -> None:
+def _normalize_provider(provider: Optional[str]) -> str:
+    normalized = (provider or DEFAULT_LLM_PROVIDER).strip().lower()
+    if normalized not in LLM_PROVIDERS:
+        return DEFAULT_LLM_PROVIDER
+    return normalized
+
+
+def _normalize_model(provider: str, model: Optional[str]) -> str:
+    provider_models = AVAILABLE_LLM_MODELS.get(provider, [])
+    default_model = DEFAULT_LLM_MODEL_BY_PROVIDER[provider]
+    selected = (model or default_model).strip()
+    selected = LEGACY_MODEL_ALIASES.get(selected, selected)
+    if selected not in provider_models:
+        return default_model
+    return selected
+
+
+def _resolve_user_llm_settings(user_id: str) -> Dict[str, str]:
+    settings = _get_user_settings(user_id) or {}
+    provider = _normalize_provider(settings.get("provider"))
+    api_key = (settings.get("api_key") or "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="LLM API key not configured. Add one in Settings → API Settings.",
+        )
+    model = _normalize_model(provider, settings.get("model"))
+    return {"provider": provider, "api_key": api_key, "model": model}
+
+
+def _upsert_user_settings(
+    user_id: str,
+    api_key: Optional[str],
+    model: Optional[str],
+    provider: Optional[str] = None,
+) -> None:
     client = get_supabase_client()
     payload = {
         "user_id": user_id,
@@ -128,10 +511,9 @@ def _upsert_user_settings(user_id: str, api_key: Optional[str], model: Optional[
         "model": model,
         "updated_at": datetime.utcnow().isoformat(),
     }
-    response = client.table("user_settings").upsert(payload, on_conflict="user_id").execute()
-    if response.error:
-        logger.error("Failed to upsert user settings for %s: %s", user_id, response.error)
-        raise HTTPException(status_code=500, detail="Failed to update user settings")
+    if provider is not None:
+        payload["provider"] = _normalize_provider(provider)
+    client.table("user_settings").upsert(payload, on_conflict="user_id").execute()
 
 
 async def get_current_user(
@@ -151,15 +533,7 @@ async def get_current_user(
     return user
 
 
-def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
-    if not full_path.lower().endswith('.json'):
-        return None, None
-    try:
-        with open(full_path, 'r', encoding='utf-8') as fh:
-            data = json.load(fh)
-    except Exception:
-        return 0, 'invalid'
-
+def _classify_json(data: Any) -> Tuple[Optional[int], Optional[str]]:
     def valid_node(node: Any) -> bool:
         if not isinstance(node, dict):
             return False
@@ -193,37 +567,193 @@ def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
     return 0, 'invalid'
 
 
-def _upsert_file_record(path: str, *, created_by: Optional[str] = None) -> Dict[str, Any]:
+def _classify_bytes(content: bytes, filename: str) -> Tuple[Optional[int], Optional[str]]:
+    if not filename.lower().endswith('.json'):
+        return None, None
     try:
-        return supabase_upsert_file_record(
-            path,
-            BACKEND_DIR,
-            _classify_file,
-            created_by=created_by,
+        data = json.loads(content.decode('utf-8'))
+    except Exception:
+        return 0, 'invalid'
+    return _classify_json(data)
+
+
+def _classify_file(full_path: str) -> Tuple[Optional[int], Optional[str]]:
+    if not full_path.lower().endswith('.json'):
+        return None, None
+    try:
+        with open(full_path, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+    except Exception:
+        return 0, 'invalid'
+    return _classify_json(data)
+
+
+def _require_user_id(current_user: Dict[str, Any]) -> str:
+    user_id = current_user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user")
+    return user_id
+
+
+def _record_storage_key(record: Dict[str, Any], user_id: str) -> str:
+    raw = record.get("path") or record.get("rel_path") or record.get("name") or ""
+    return storage_key_from_record(str(raw), user_id)
+
+
+def _public_file_record(record: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    public = dict(record)
+    key = _record_storage_key(record, user_id)
+    public["path"] = public_path_from_storage_key(key, user_id)
+    return public
+
+
+def _annotation_status_from_bytes(content: bytes) -> Optional[str]:
+    try:
+        from file_utils import _annotation_status_from_json
+    except ImportError:
+        from .file_utils import _annotation_status_from_json
+
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except Exception:
+        return None
+    return _annotation_status_from_json(data)
+
+
+def _enrich_file_record(
+    record: Dict[str, Any],
+    user_id: str,
+    content: Optional[bytes] = None,
+) -> Dict[str, Any]:
+    public = _public_file_record(record, user_id)
+    name = public.get("name") or ""
+    if not str(name).lower().endswith(".json"):
+        public["annotation_status"] = None
+        return public
+
+    try:
+        payload = content if content is not None else _download_record_bytes(record, user_id)
+        public["annotation_status"] = _annotation_status_from_bytes(payload)
+    except Exception:
+        public["annotation_status"] = None
+    return public
+
+
+def _upsert_storage_file(
+    user_id: str,
+    rel_path: str,
+    content: bytes,
+    *,
+    filename: Optional[str] = None,
+) -> Dict[str, Any]:
+    name = filename or os.path.basename(normalize_user_rel_path(rel_path) or rel_path)
+    try:
+        object_key = upload_bytes(user_id, rel_path, content, filename=name)
+    except Exception as exc:
+        logger.error("Failed to upload %s for user %s: %s", rel_path, user_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    file_type = os.path.splitext(name)[1].lstrip(".").lower() or "unknown"
+    struct_flag, category = _classify_bytes(content, name)
+    structure_ok = bool(struct_flag) if struct_flag is not None else None
+    try:
+        return supabase_upsert_file_metadata(
+            name=name,
+            size=len(content),
+            rel_path=object_key,
+            file_type=file_type,
+            created_by=user_id,
+            structure_ok=structure_ok,
+            category=category,
         )
-    except RuntimeError as exc:
-        logger.error("Failed to upsert metadata for %s: %s", path, exc)
+    except Exception as exc:
+        logger.error("Failed to upsert metadata for %s: %s", object_key, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _delete_file_record(name: str) -> None:
+def _download_record_bytes(record: Dict[str, Any], user_id: str) -> bytes:
+    return download_bytes(_record_storage_key(record, user_id))
+
+
+def _file_content_response(content: bytes, filename: str, *, download: bool = False):
+    from fastapi.responses import Response
+
+    if download:
+        return Response(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{os.path.basename(filename)}"'},
+        )
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == ".json":
+        try:
+            return JSONResponse(content=json.loads(content.decode("utf-8")))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to parse JSON: {exc}") from exc
+    if ext == ".pkl":
+        return {
+            "message": "This is a Python pickle file. Use the download endpoint to retrieve it or process it on the server."
+        }
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{os.path.basename(filename)}"'},
+    )
+
+
+def _record_in_folder(record: Dict[str, Any], user_id: str, folder: Optional[str]) -> bool:
+    public_path = _public_file_record(record, user_id)["path"]
+    if not folder:
+        return "/" not in public_path
+    folder_norm = normalize_user_rel_path(folder)
+    if public_path == folder_norm:
+        return True
+    return public_path.startswith(folder_norm + "/")
+
+
+def _sync_storage_entries(user_id: str, folder: Optional[str] = None) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for object_key in walk_user_files(user_id, folder or ""):
+        ext = os.path.splitext(object_key)[1].lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            continue
+        content = download_bytes(object_key)
+        public_path = public_path_from_storage_key(object_key, user_id)
+        rec = _upsert_storage_file(
+            user_id,
+            public_path,
+            content,
+            filename=os.path.basename(object_key),
+        )
+        entries.append(_enrich_file_record(rec, user_id, content))
+    return entries
+
+
+def _delete_file_record(name: str, *, user_id: str) -> None:
     try:
-        supabase_delete_file_record(name)
-    except RuntimeError as exc:
+        supabase_delete_file_record(name, user_id=user_id)
+    except Exception as exc:
         logger.error("Failed to delete metadata for %s: %s", name, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _list_files_db() -> List[Dict[str, Any]]:
+def _delete_file_record_by_id(file_id: int, *, user_id: str) -> None:
     try:
-        return supabase_list_files_db()
-    except RuntimeError as exc:
+        supabase_delete_file_record_by_id(file_id, user_id)
+    except Exception as exc:
+        logger.error("Failed to delete metadata id=%s: %s", file_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _list_files_db(user_id: str) -> List[Dict[str, Any]]:
+    try:
+        return supabase_list_files_db(user_id)
+    except Exception as exc:
         logger.error("Failed to list files: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _load_file_record(identifier: Any) -> Optional[Dict[str, Any]]:
-    """Fetch a file record by numeric id or stored name/path."""
+def _load_file_record(identifier: Any, *, user_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a file record by numeric id or stored name/path for the given user."""
     try:
         file_id = int(identifier)
     except (TypeError, ValueError):
@@ -231,9 +761,9 @@ def _load_file_record(identifier: Any) -> Optional[Dict[str, Any]]:
 
     try:
         if file_id is not None:
-            return _get_file_record_by_id(file_id)
-        return _get_file_by_name_or_relpath(str(identifier))
-    except RuntimeError as exc:
+            return _get_file_record_by_id(file_id, user_id)
+        return _get_file_by_name_or_relpath(str(identifier), user_id)
+    except Exception as exc:
         logger.error("Failed to load metadata for %s: %s", identifier, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -251,6 +781,11 @@ app.add_middleware(
 app.mount("/files", StaticFiles(directory=FILES_ROOT), name="files")
 # keep original backend static mount as well
 app.mount("/static-backend", StaticFiles(directory=BACKEND_DIR), name="static-backend")
+
+
+@app.on_event("startup")
+async def ensure_annotation_schema_column() -> None:
+    _ensure_annotation_schema_column()
 
 
 def _safe_path(rel_path: str) -> str:
@@ -324,6 +859,29 @@ async def login_user(request: Request):
     return supabase_response
 
 
+@app.post("/api/auth/refresh")
+async def refresh_auth_token(request: Request):
+    """Exchange a Supabase refresh token for a new access token."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    refresh_token = (body.get("refresh_token") or "").strip()
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token is required")
+
+    supabase_response = await _supabase_auth_post(
+        "/token",
+        {"refresh_token": refresh_token},
+        params={"grant_type": "refresh_token"},
+    )
+    return supabase_response
+
+
 @app.get("/api/auth/me")
 async def read_current_user(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Return the currently authenticated user based on the Bearer token."""
@@ -338,24 +896,30 @@ async def get_settings(current_user: Dict[str, Any] = Depends(get_current_user))
     boolean flag is exposed so the client knows whether a key is configured.
     """
     settings = _get_user_settings(current_user["id"])
-    model = (settings or {}).get("model") or DEFAULT_LLM_MODEL
-    if model not in AVAILABLE_LLM_MODELS:
-        model = DEFAULT_LLM_MODEL
+    provider = _normalize_provider((settings or {}).get("provider"))
+    model = _normalize_model(provider, (settings or {}).get("model"))
     has_api_key = bool((settings or {}).get("api_key"))
     return {
+        "provider": provider,
         "model": model,
         "hasApiKey": has_api_key,
-        "availableModels": AVAILABLE_LLM_MODELS,
+        "availableModels": AVAILABLE_LLM_MODELS[provider],
+        "availableProviders": [
+            {"id": provider_id, "label": LLM_PROVIDER_LABELS[provider_id]}
+            for provider_id in LLM_PROVIDERS
+        ],
+        "modelsByProvider": AVAILABLE_LLM_MODELS,
     }
 
 
 @app.post("/api/settings")
 async def update_settings(request: Request, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Update the current user's LLM API key and preferred model.
+    """Update the current user's LLM API key, provider, and preferred model.
 
     Expects JSON body with optional keys:
       - apiKey: string (empty string clears the stored key)
-      - model: string (one of AVAILABLE_LLM_MODELS)
+      - provider: string ("groq" or "openai")
+      - model: string (one of the selected provider's available models)
     """
     try:
         body = await request.json()
@@ -367,33 +931,96 @@ async def update_settings(request: Request, current_user: Dict[str, Any] = Depen
 
     api_key_raw = body.get("apiKey")
     model_raw = body.get("model")
+    provider_raw = body.get("provider")
+
+    existing = _get_user_settings(current_user["id"]) or {}
+
+    provider = _normalize_provider(provider_raw if provider_raw is not None else existing.get("provider"))
 
     api_key: Optional[str]
     if api_key_raw is None:
-        # None means: keep existing key as-is
-        existing = _get_user_settings(current_user["id"]) or {}
         api_key = existing.get("api_key")
     else:
-        # Empty string explicitly clears the stored key
         api_key = api_key_raw.strip() or None
 
-    model: Optional[str]
     if model_raw is None:
-        existing = _get_user_settings(current_user["id"]) or {}
-        model = existing.get("model") or DEFAULT_LLM_MODEL
+        model = _normalize_model(provider, existing.get("model"))
     else:
-        model = str(model_raw).strip() or DEFAULT_LLM_MODEL
+        model = _normalize_model(provider, str(model_raw).strip() or None)
 
-    if model not in AVAILABLE_LLM_MODELS:
-        raise HTTPException(status_code=400, detail="Unsupported model selection")
+    if model not in AVAILABLE_LLM_MODELS[provider]:
+        raise HTTPException(status_code=400, detail="Unsupported model selection for the chosen provider")
 
-    _upsert_user_settings(current_user["id"], api_key, model)
+    _upsert_user_settings(current_user["id"], api_key, model, provider)
 
     return {
         "success": True,
+        "provider": provider,
         "model": model,
         "hasApiKey": bool(api_key),
+        "availableModels": AVAILABLE_LLM_MODELS[provider],
     }
+
+
+@app.get("/api/settings/annotation-schema")
+async def get_annotation_schema(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the current user's annotation field schema."""
+    settings = _get_user_settings(current_user["id"]) or {}
+    stored = settings.get("annotation_schema")
+    schema = _normalize_annotation_schema(stored)
+    return {"schema": schema}
+
+
+@app.put("/api/settings/annotation-schema")
+async def update_annotation_schema(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Update the current user's annotation field schema."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    schema = _normalize_annotation_schema(body.get("schema"))
+    if _USER_SETTINGS_HAS_ANNOTATION_SCHEMA is False:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Annotation schema storage is not available yet. "
+                "Set DATABASE_IPv4_URL to your Supabase Postgres URI (same project as SUPABASE_URL), "
+                "then run: python backend/scripts/setup_db.py"
+            ),
+        )
+
+    client = get_supabase_client()
+    existing = _get_user_settings(current_user["id"]) or {}
+    payload = {
+        "user_id": current_user["id"],
+        "api_key": existing.get("api_key"),
+        "model": existing.get("model"),
+        "provider": _normalize_provider(existing.get("provider")),
+        "annotation_schema": schema,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        client.table("user_settings").upsert(payload, on_conflict="user_id").execute()
+    except APIError as exc:
+        if _is_missing_annotation_schema_error(exc):
+            _mark_annotation_schema_unavailable()
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Annotation schema storage is not available yet. "
+                    "Set DATABASE_IPv4_URL to your Supabase Postgres URI (same project as SUPABASE_URL), "
+                    "then run: python backend/scripts/setup_db.py"
+                ),
+            ) from exc
+        raise
+    return {"success": True, "schema": schema}
 
 
 def _resolve_stored_relpath(relpath: str) -> str:
@@ -447,456 +1074,299 @@ def _atomic_write_json(full_path: str, data: any, ensure_ascii: bool = False) ->
 
 
 @app.get("/api/files")
-def list_files(folder: Optional[str] = None) -> List[Dict[str, Any]]:
-    """List available files from the Supabase metadata table.
+def list_files(
+    folder: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    """List files owned by the authenticated user."""
+    user_id = _require_user_id(current_user)
+    rows = _list_files_db(user_id)
 
-    If folder is provided it filters results to that subfolder (relative to files_root).
-    If DB is empty it will scan FILES_ROOT (or the provided folder) to populate the DB.
-    """
-    import os
-    from datetime import datetime
-    rows = _list_files_db()
-    def fill_defaults(file_row):
-        # Always set type to 'json' if missing or None
-        if not file_row.get('type'):
-            file_row['type'] = 'json'
-        # If uploadDate is missing or None, use file creation time
-        if not file_row.get('uploadDate'):
-            file_path = file_row.get('path')
-            if file_path and os.path.exists(file_path):
-                ts = os.path.getctime(file_path)
-                file_row['uploadDate'] = datetime.fromtimestamp(ts).isoformat()
-            else:
-                file_row['uploadDate'] = datetime.now().isoformat()
+    def fill_defaults(file_row: Dict[str, Any]) -> Dict[str, Any]:
+        if not file_row.get("type"):
+            file_row["type"] = "json"
+        if not file_row.get("uploadDate"):
+            file_row["uploadDate"] = datetime.now().isoformat()
         return file_row
+
     if rows:
-        if folder:
-            folder_prefix = os.path.normpath(os.path.join('files_root', folder))
-            def in_folder(relpath: str) -> bool:
-                rp = os.path.normpath(relpath)
-                if rp == folder_prefix:
-                    return True
-                return rp.startswith(folder_prefix + os.sep)
+        filtered = [r for r in rows if _record_in_folder(r, user_id, folder)]
+        return [fill_defaults(_enrich_file_record(r, user_id)) for r in filtered]
 
-            filtered = [fill_defaults(r) for r in rows if in_folder(r['path'])]
-            return filtered
-
-        top_level = []
-        for r in rows:
-            rp = os.path.normpath(r.get('path', ''))
-            prefix = os.path.normpath('files_root') + os.sep
-            if rp.startswith(prefix):
-                rel = rp[len(prefix):]
-            else:
-                rel = rp
-            if rel and os.sep not in rel:
-                top_level.append(fill_defaults(r))
-        return top_level
-
-    # fallback: walk FILES_ROOT and populate DB (respect folder if provided)
-    allowed_exts = {'.json', '.pkl', '.csv'}
-    entries = []
-    if folder:
-        start = _safe_path(folder)
-        for root, _, files in os.walk(start):
-            for name in files:
-                if os.path.splitext(name)[1].lower() in allowed_exts:
-                    full = os.path.join(root, name)
-                    rec = _upsert_file_record(full)
-                    entries.append(rec)
-    else:
-        for root, _, files in os.walk(FILES_ROOT):
-            for name in files:
-                if os.path.splitext(name)[1].lower() in allowed_exts:
-                    full = os.path.join(root, name)
-                    rec = _upsert_file_record(full)
-                    entries.append(rec)
-    return entries
+    return _sync_storage_entries(user_id, folder)
 
 
 @app.get('/api/files/id/{file_id}')
-def get_file_by_id(file_id: int, download: bool = False):
+def get_file_by_id(
+    file_id: int,
+    download: bool = False,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """Return file metadata or JSON content when targeting by numeric id."""
-    try:
-        record = _get_file_record_by_id(file_id)
-    except RuntimeError as exc:
-        logger.error("Failed to load Supabase metadata for id=%s: %s", file_id, exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(file_id, user_id=user_id)
     if not record:
         raise HTTPException(status_code=404, detail='File not found')
 
-    relpath = record.get('path') or record.get('rel_path')
-    full = _resolve_stored_relpath(relpath)
-    files_root_norm = os.path.normpath(FILES_ROOT)
-    if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
-        raise HTTPException(status_code=400, detail='Invalid file path stored in DB')
-    if not os.path.exists(full):
-        logger.error(f"get_file_by_id: resolved full path does not exist: {full}")
-        raise HTTPException(status_code=404, detail='File not found')
-    
-    if download:
-        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
+    try:
+        content = _download_record_bytes(record, user_id)
+    except Exception as exc:
+        logger.error("get_file_by_id: failed to download id=%s: %s", file_id, exc)
+        raise HTTPException(status_code=404, detail='File not found') from exc
 
-    ext = os.path.splitext(full)[1].lower()
-    if ext == '.json':
-        with open(full, 'r', encoding='utf-8') as f:
-            try:
-                return JSONResponse(content=json.load(f))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to parse JSON: {e}")
-    elif ext == '.pkl':
-        return {"message": "This is a Python pickle file. Use the download endpoint to retrieve it or process it on the server."}
-    else:
-        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
+    filename = record.get("name") or str(file_id)
+    return _file_content_response(content, filename, download=download)
 
 
 @app.get("/api/files/{filename:path}")
-def get_file(filename: str, download: bool = False):
-    """Return file content for JSON files, a message for PKL, otherwise provide a download.
-
-    Frontend can use this to preview JSON, download binaries, or receive a helpful message for pickle files.
-    """
-    # First, try to resolve the filename as a path under FILES_ROOT
-    try:
-        full = _safe_path(filename)
-    except HTTPException:
-        # propagate safety errors
-        raise
-
-    # If the safe-resolved path doesn't exist, attempt to locate the file by name
-    # in the DB (files may live in subfolders created by the app and the UI may
-    # request them by filename only).
-    if not os.path.exists(full):
+def get_file(
+    filename: str,
+    download: bool = False,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Return file content for files owned by the authenticated user."""
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(filename, user_id=user_id)
+    if not record:
         try:
-            row = _get_file_by_name_or_relpath(filename)
-        except RuntimeError as exc:
-            logger.error("Failed to resolve %s via Supabase metadata: %s", filename, exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        if row:
-            relpath = row.get('path') or row.get('rel_path')
-            try:
-                candidate = _resolve_stored_relpath(relpath)
-            except Exception:
-                candidate = None
-            files_root_norm = os.path.normpath(FILES_ROOT)
-            if candidate and (candidate == files_root_norm or candidate.startswith(files_root_norm + os.sep)) and os.path.exists(candidate):
-                full = candidate
-            else:
-                raise HTTPException(status_code=404, detail="File not found")
-        else:
+            object_key = storage_key(user_id, filename)
+            content = download_bytes(object_key)
+            return _file_content_response(content, filename, download=download)
+        except Exception:
             raise HTTPException(status_code=404, detail="File not found")
 
-    if download:
-        return FileResponse(full, media_type='application/octet-stream', filename=os.path.basename(full))
+    try:
+        content = _download_record_bytes(record, user_id)
+    except Exception as exc:
+        logger.error("get_file: failed to download %s: %s", filename, exc)
+        raise HTTPException(status_code=404, detail="File not found") from exc
 
-    ext = os.path.splitext(filename)[1].lower()
-    if ext == '.json':
-        with open(full, 'r', encoding='utf-8') as f:
-            try:
-                return JSONResponse(content=json.load(f))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to parse JSON: {e}")
-    elif ext == '.pkl':
-        # Pickle files cannot be safely deserialized in the browser; provide a helpful message
-        return {"message": "This is a Python pickle file. Use the download endpoint to retrieve it or process it on the server."}
-    else:
-        # For other files, return raw file for download
-        return FileResponse(full, media_type='application/octet-stream', filename=filename)
-    
+    name = record.get("name") or filename
+    return _file_content_response(content, name, download=download)
+
 
 @app.patch('/api/files/id/{file_id}')
-async def save_changes_file_by_id(file_id: int, request: Request):
+async def save_changes_file_by_id(
+    file_id: int,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """Save changes to a JSON file identified by numeric id."""
-    record = _load_file_record(file_id)
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(file_id, user_id=user_id)
     if not record:
         raise HTTPException(status_code=404, detail='File not found')
-    name = record.get('name')
-    relpath = record.get('path') or record.get('rel_path')
-    # Resolve stored path robustly (support legacy entries)
-    full = _resolve_stored_relpath(relpath)
-    logger = logging.getLogger('uvicorn.error')
-    logger.info(f"save_changes_file_by_id: id={file_id} name={name} relpath={relpath} resolved_full={full}")
-    # Ensure resolved path is inside FILES_ROOT (protect against legacy/absolute paths)
-    files_root_norm = os.path.normpath(FILES_ROOT)
-    if not (full == files_root_norm or full.startswith(files_root_norm + os.sep)):
-        raise HTTPException(status_code=400, detail='Invalid file path stored in DB')
-    if not os.path.exists(full):
-        raise HTTPException(status_code=404, detail='File not found')
-    # Reject directories — we must operate on files only
-    if not os.path.isfile(full):
-        raise HTTPException(status_code=400, detail='Target is not a file')
-    ext = os.path.splitext(full)[1].lower()
-    if ext != '.json':
+
+    filename = record.get("name") or str(file_id)
+    if not filename.lower().endswith(".json"):
         raise HTTPException(status_code=400, detail='Only JSON files can be modified via this endpoint')
+
     try:
         data = await request.json()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
+
+    public_path = _public_file_record(record, user_id)["path"]
+    content = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
     try:
-        _atomic_write_json(full, data)
+        rec = _upsert_storage_file(user_id, public_path, content, filename=filename)
     except Exception as e:
-        logger.error(f"save_changes_file_by_id: failed to write {full}: {e}")
-        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
-    # update DB record (e.g., uploadDate)
-    rec = _upsert_file_record(full)
-    return {"message": "Saved", "file": rec}
+        logger.error("save_changes_file_by_id: failed to upload id=%s: %s", file_id, e)
+        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}') from e
+    return {"message": "Saved", "file": _enrich_file_record(rec, user_id, content)}
 
 
 @app.patch('/api/files/{filename:path}')
-async def save_changes_file_by_name(filename: str, request: Request):
-    """Save changes to a JSON file identified by filename (relative to files_root).
-
-    Behaviour:
-    - The filename is resolved safely inside `FILES_ROOT` using `_safe_path` (prevents traversal).
-    - If the target exists and is a JSON object, the endpoint will replace its top-level
-      'users' key when a 'users' array is provided in the request body. If no 'users' key
-      is present in the body, the entire body may be written (use with care).
-    - If the target does not exist, the endpoint will create a new JSON file of the form
-      {"users": [...]} when the caller provides a 'users' array.
-    - Only JSON files are allowed for modification via this endpoint.
-    """
-    logger = logging.getLogger('uvicorn.error')
-    try:
-        full = _safe_path(filename)
-    except HTTPException:
-        logger.error(f"save_changes_file_by_name: unsafe path requested: {filename}")
-        raise
-
-    # Ensure we operate on a file (not a directory)
-    if os.path.isdir(full):
-        raise HTTPException(status_code=400, detail='Target is a directory')
-
-    ext = os.path.splitext(full)[1].lower()
-    if ext != '.json':
+async def save_changes_file_by_name(
+    filename: str,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Save changes to a JSON file identified by filename inside the user's storage."""
+    user_id = _require_user_id(current_user)
+    if not filename.lower().endswith(".json"):
         raise HTTPException(status_code=400, detail='Only JSON files can be modified via this endpoint')
 
     try:
         body = await request.json()
     except Exception as e:
-        logger.error(f"save_changes_file_by_name: invalid JSON for {filename}: {e}")
         raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
 
     users = body.get('users') if isinstance(body, dict) else None
+    record = _load_file_record(filename, user_id=user_id)
 
-    # Determine what to write
-    if os.path.exists(full):
-        # If file exists, try to parse it and merge/replace 'users'
-        try:
-            with open(full, 'r', encoding='utf-8') as fh:
-                data = json.load(fh)
-        except Exception:
-            # avoid clobbering non-JSON content
-            raise HTTPException(status_code=400, detail='Target exists but is not valid JSON')
-        if isinstance(data, dict):
-            if users is not None:
-                data['users'] = users
-                to_write = data
-            else:
-                # No users key provided: interpret request as full-replace of object
-                if isinstance(body, dict):
-                    to_write = body
-                else:
-                    raise HTTPException(status_code=400, detail='Nothing to write')
+    if record:
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail='Request body must be a JSON object')
+        # Legacy partial update: only replace the users array when that is the sole field.
+        if set(body.keys()) == {'users'}:
+            try:
+                existing = json.loads(_download_record_bytes(record, user_id).decode("utf-8"))
+            except Exception:
+                raise HTTPException(status_code=400, detail='Target exists but is not valid JSON')
+            if not isinstance(existing, dict):
+                raise HTTPException(status_code=400, detail='Target JSON is not an object; cannot insert users')
+            existing['users'] = users
+            to_write = existing
         else:
-            raise HTTPException(status_code=400, detail='Target JSON is not an object; cannot insert users')
+            to_write = body
+        public_path = _public_file_record(record, user_id)["path"]
     else:
-        # File doesn't exist: require 'users' array to create a sensible file
         if not isinstance(users, list):
             raise HTTPException(status_code=400, detail='Target does not exist; provide a "users" array to create it')
         to_write = {'users': users}
+        public_path = normalize_user_rel_path(filename)
 
+    content = json.dumps(to_write, indent=2, ensure_ascii=False).encode("utf-8")
     try:
-        logger.info(f"save_changes_file_by_name: writing to {full} (exists={os.path.exists(full)}) size={len(json.dumps(to_write)) if to_write is not None else 0}")
-        _atomic_write_json(full, to_write)
+        rec = _upsert_storage_file(user_id, public_path, content, filename=os.path.basename(public_path))
     except Exception as e:
-        logger.error(f"save_changes_file_by_name: failed to write {full}: {e}")
-        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}')
-
-    rec = _upsert_file_record(full)
-    return {"message": "Saved", "file": rec}
+        logger.error("save_changes_file_by_name: failed to upload %s: %s", filename, e)
+        raise HTTPException(status_code=500, detail=f'Failed to save JSON file: {e}') from e
+    saved = _enrich_file_record(rec, user_id, content)
+    return {"message": "Saved", "file": saved}
 
 
 @app.delete('/api/files/id/{file_id}')
-def delete_file_by_id(file_id: int):
-    record = _load_file_record(file_id)
+def delete_file_by_id(
+    file_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(file_id, user_id=user_id)
     if not record:
         raise HTTPException(status_code=404, detail='File not found')
     name = record.get('name') or str(file_id)
-    relpath = record.get('path') or record.get('rel_path')
-    # Resolve stored path robustly (support legacy entries)
-    full = _resolve_stored_relpath(relpath)
-    if os.path.exists(full):
-        try:
-            os.remove(full)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f'Failed to remove file: {e}')
-    _delete_file_record(name)
+    try:
+        delete_object(_record_storage_key(record, user_id))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Failed to remove file: {e}') from e
+    _delete_file_record_by_id(file_id, user_id=user_id)
     return {"message": "Deleted", "file": name, "id": file_id}
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), path: Optional[str] = Form(None)):
-    """Upload a file into the backend directory. Overwrites if name exists."""
-    # For uploads we only accept a single filename (no nested paths within file.filename)
+async def upload_file(
+    file: UploadFile = File(...),
+    path: Optional[str] = Form(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Upload a file into the authenticated user's Supabase Storage area."""
+    user_id = _require_user_id(current_user)
     if os.path.basename(file.filename) != file.filename:
         raise HTTPException(status_code=400, detail="Invalid upload filename")
     filename = file.filename
-    if path:
-        # ensure the folder is safe and exists (create if missing)
-        folder_full = _safe_path(path)
-        os.makedirs(folder_full, exist_ok=True)
-        dest = os.path.join(folder_full, filename)
-    else:
-        dest = os.path.join(FILES_ROOT, filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTS:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    rel_path = normalize_user_rel_path(path, filename) if path else filename
     try:
-        with open(dest, 'wb') as out:
-            content = await file.read()
-            out.write(content)
+        content = await file.read()
+        rec = _upsert_storage_file(user_id, rel_path, content, filename=filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-    # update DB record
-    # Update DB record for the uploaded file and scan the containing folder so
-    # newly uploaded files inside nested folders are all processed.
-    rec = _upsert_file_record(dest)
-    # If a folder was provided, also scan other files in the same folder to
-    # ensure the DB is up-to-date for that directory.
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
+
     if path:
         try:
-            folder_full = os.path.normpath(folder_full)
-            for name in os.listdir(folder_full):
-                full = os.path.join(folder_full, name)
-                if os.path.isfile(full) and os.path.splitext(name)[1].lower() in {'.json', '.pkl', '.csv'}:
-                    _upsert_file_record(full)
+            _sync_storage_entries(user_id, path)
         except Exception:
-            # non-fatal: we've already updated the uploaded file record; ignore folder-scan errors
             pass
-    return {"message": "Uploaded", "file": rec}
+    return {"message": "Uploaded", "file": _public_file_record(rec, user_id)}
 
 
 @app.delete("/api/files/{filename:path}")
-def delete_file(filename: str):
-    # allow deleting nested files under files_root
-    full = _safe_path(filename)
-    if not os.path.exists(full):
-        raise HTTPException(status_code=404, detail="File not found")
-    os.remove(full)
+def delete_file(
+    filename: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(filename, user_id=user_id)
+    if record:
+        object_key = _record_storage_key(record, user_id)
+        file_id = record.get("id")
+        delete_name = record.get("name") or os.path.basename(filename)
+    else:
+        try:
+            object_key = storage_key(user_id, filename)
+            file_id = None
+            delete_name = os.path.basename(filename)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
-    record = None
-    rel_identifier = os.path.relpath(full, BACKEND_DIR)
     try:
-        record = _load_file_record(rel_identifier)
-        if not record:
-            record = _load_file_record(os.path.basename(filename))
-    except HTTPException:
-        raise
-    except Exception:
-        record = None
-
-    file_id = record.get('id') if record else None
-    try:
-        _delete_file_record(os.path.basename(filename))
-    except HTTPException as exc:
-        # If Supabase deletion fails we should inform the caller
-        raise exc
+        delete_object(object_key)
     except Exception as exc:
-        logger.error("Failed to delete Supabase metadata for %s: %s", filename, exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="File not found") from exc
 
+    if file_id is not None:
+        _delete_file_record_by_id(file_id, user_id=user_id)
+    else:
+        _delete_file_record(delete_name, user_id=user_id)
     return {"message": "Deleted", "file": filename, "id": file_id}
 
 
 @app.post('/api/migrate-files')
-def migrate_files():
-    """Scan backend directory for allowed files and populate/update the Supabase metadata table."""
-    allowed_exts = {'.json', '.pkl', '.csv'}
-    entries = []
-    for root, _, files in os.walk(FILES_ROOT):
-        for name in files:
-            if os.path.splitext(name)[1].lower() in allowed_exts:
-                full = os.path.join(root, name)
-                rec = _upsert_file_record(full)
-                entries.append(rec)
+def migrate_files(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Scan the authenticated user's storage bucket and populate/update metadata."""
+    user_id = _require_user_id(current_user)
+    entries = _sync_storage_entries(user_id)
     return {"migrated": len(entries), "files": entries}
 
 
 @app.post('/api/files/save-draft/{filename:path}')
-async def save_draft_file(filename: str, request: Request):
-    """Create a new draft JSON file under FILES_ROOT with the provided filename.
-
-    Expects a JSON body like: { "payload": { ... } }
-    The filename is interpreted as a relative path inside files_root. If the
-    provided filename has no .json extension, ".json" will be appended.
-    """
-    logger = logging.getLogger('uvicorn.error')
+async def save_draft_file(
+    filename: str,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Create a new draft JSON file inside the authenticated user's storage."""
+    user_id = _require_user_id(current_user)
     try:
         body = await request.json()
     except Exception as e:
-        logger.error(f"save_draft_file: invalid JSON body for {filename}: {e}")
         raise HTTPException(status_code=400, detail=f'Invalid JSON body: {e}')
 
     payload = body.get('payload') if isinstance(body, dict) else None
     if payload is None:
         raise HTTPException(status_code=400, detail='Missing "payload" in request body')
 
-    # Ensure filename ends with .json
     if not filename.lower().endswith('.json'):
         filename = filename + '.json'
 
-    # Save under files_root; use _safe_path to avoid traversal
+    public_path = normalize_user_rel_path(filename)
+    content = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
     try:
-        rel = filename
-        full = _safe_path(rel)
-    except HTTPException as e:
-        logger.error(f"save_draft_file: unsafe filename requested: {filename}")
-        raise
-
-    # If target exists and is a directory, error
-    if os.path.isdir(full):
-        raise HTTPException(status_code=400, detail='Target filename resolves to a directory')
-
-    try:
-        _atomic_write_json(full, payload, ensure_ascii=False)
+        rec = _upsert_storage_file(user_id, public_path, content, filename=os.path.basename(public_path))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.error(f"save_draft_file: failed to write {full}: {e}")
-        raise HTTPException(status_code=500, detail=f'Failed to write draft file: {e}')
+        raise HTTPException(status_code=500, detail=f'Failed to write draft file: {e}') from e
 
-    # Update DB record for the new file
-    try:
-        rec = _upsert_file_record(full)
-    except Exception:
-        rec = None
-
-    return {"message": "Draft saved", "file": rec or os.path.basename(full)}
+    return {"message": "Draft saved", "file": _public_file_record(rec, user_id)}
 
 
 @app.post('/api/files/move')
-def move_files_endpoint(data: dict):
-    """Move files listed in `targets` to the `dest` folder (relative to files_root).
-
-    Accepts JSON body: { targets: [...], dest: 'path' }
-    Targets can be numeric ids (int or string digits) or stored names/paths.
-    """
+def move_files_endpoint(
+    data: dict,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Move files owned by the authenticated user to a destination folder."""
+    user_id = _require_user_id(current_user)
     targets = data.get('targets') if isinstance(data, dict) else None
     dest = data.get('dest') if isinstance(data, dict) else ''
     if not targets or not isinstance(targets, list):
         raise HTTPException(status_code=400, detail='Missing or invalid targets')
 
-    # destination folder (empty means root)
-    try:
-        dest_full = _safe_path(dest) if dest else FILES_ROOT
-    except HTTPException as e:
-        raise e
-
-    os.makedirs(dest_full, exist_ok=True)
-
+    dest_rel = normalize_user_rel_path(dest) if dest else ""
     moved = []
     errors = []
 
     for t in targets:
         try:
-            record = _load_file_record(t)
+            record = _load_file_record(t, user_id=user_id)
         except HTTPException as exc:
             errors.append({'target': t, 'error': exc.detail})
             continue
@@ -908,28 +1378,27 @@ def move_files_endpoint(data: dict):
             errors.append({'target': t, 'error': 'not found in DB'})
             continue
 
-        relpath = record.get('path') or record.get('rel_path') or record.get('name')
+        src_key = _record_storage_key(record, user_id)
+        basename = os.path.basename(src_key)
         try:
-            src_full = _resolve_stored_relpath(relpath)
-        except Exception:
-            errors.append({'target': t, 'error': 'invalid stored path'})
-            continue
-
-        files_root_norm = os.path.normpath(FILES_ROOT)
-        if not (src_full == files_root_norm or src_full.startswith(files_root_norm + os.sep)):
-            errors.append({'target': t, 'error': 'invalid stored path'})
-            continue
-        if not os.path.exists(src_full):
-            errors.append({'target': t, 'error': 'source file missing'})
-            continue
-
-        dest_full_path = os.path.join(dest_full, os.path.basename(src_full))
-        try:
-            if os.path.exists(dest_full_path):
-                os.remove(dest_full_path)
-            shutil.move(src_full, dest_full_path)
-            rec = _upsert_file_record(dest_full_path, created_by=record.get('created_by'))
-            moved.append({'target': t, 'moved_to': rec.get('path'), 'id': rec.get('id')})
+            dest_public = normalize_user_rel_path(dest_rel, basename) if dest_rel else basename
+            dest_key = storage_key(user_id, dest_public)
+            move_object(src_key, dest_key)
+            content = download_bytes(dest_key)
+            rec = _upsert_storage_file(
+                user_id,
+                dest_public,
+                content,
+                filename=basename,
+            )
+            old_id = record.get("id")
+            if old_id:
+                _delete_file_record_by_id(old_id, user_id=user_id)
+            moved.append({
+                'target': t,
+                'moved_to': _public_file_record(rec, user_id).get('path'),
+                'id': rec.get('id'),
+            })
         except Exception as e:
             errors.append({'target': t, 'error': str(e)})
 
@@ -937,58 +1406,54 @@ def move_files_endpoint(data: dict):
 
 
 @app.get('/api/folders')
-def list_folders():
-    """Return all folders under files_root as relative paths."""
-    results = []
-    for root, dirs, _ in os.walk(FILES_ROOT):
-        for d in dirs:
-            full = os.path.join(root, d)
-            rel = os.path.relpath(full, FILES_ROOT)
-            results.append(rel)
-    return {"folders": sorted(results)}
+def list_folders(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Return folders inside the authenticated user's storage area."""
+    user_id = _require_user_id(current_user)
+    return {"folders": list_all_folder_names(user_id)}
 
 
 @app.post('/api/folders')
-def create_folder(data: dict):
-    """Create a folder under files_root. Expects JSON body {path: 'a/b'}"""
+def create_folder(
+    data: dict,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Create a folder inside the authenticated user's storage area."""
+    user_id = _require_user_id(current_user)
     target = data.get('path') if isinstance(data, dict) else None
     if not target:
         raise HTTPException(status_code=400, detail='Missing path')
-    # create folder safely
-    full = _safe_path(target)
     try:
-        os.makedirs(full, exist_ok=True)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to create folder: {e}')
+        normalize_user_rel_path(target)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"created": True, "path": target}
 
 
 @app.delete('/api/folders/{folder_path:path}')
-def delete_folder(folder_path: str):
-    """Delete a folder under files_root and remove corresponding DB records.
-
-    The folder_path is relative to files_root (e.g., 'graphics' or 'a/b').
-    Deleting the root (empty path) is not allowed.
-    """
+def delete_folder(
+    folder_path: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Delete a folder and its contents from the authenticated user's storage."""
+    user_id = _require_user_id(current_user)
     if not folder_path or folder_path in ('.', '/'):
         raise HTTPException(status_code=400, detail='Cannot delete root folder')
-    # resolve safe path and ensure it's a dir inside FILES_ROOT
-    full = _safe_path(folder_path)
-    if not os.path.isdir(full):
-        raise HTTPException(status_code=404, detail='Folder not found')
 
-    # Attempt to remove directory tree first
     try:
-        shutil.rmtree(full)
+        folder_norm = normalize_user_rel_path(folder_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    try:
+        delete_prefix(user_id, folder_norm)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Failed to remove folder: {e}')
+        raise HTTPException(status_code=500, detail=f'Failed to remove folder: {e}') from e
 
-    # Remove Supabase records for files that lived under this folder
-    relprefix = os.path.normpath(os.path.join('files_root', folder_path))
+    db_prefix = db_rel_path(user_id, folder_norm)
     try:
-        removed = _delete_files_with_prefix(relprefix)
+        removed = _delete_files_with_prefix(db_prefix, user_id)
     except RuntimeError as exc:
-        logger.error("Failed to delete Supabase rows for prefix %s: %s", relprefix, exc)
+        logger.error("Failed to delete Supabase rows for prefix %s: %s", db_prefix, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"deleted": True, "path": folder_path, "db_files_removed": removed}
@@ -1042,19 +1507,15 @@ def get_users(discussion_file: Optional[str] = None):
 
 @app.get("/api/llm/health")
 def llm_health_check():
-    """Check if LLM module can be loaded"""
-    try:
-        # Test that we can call the function
-        test_result = transform_discussion_json([{"id": 1, "text": "test"}])
-        return {"status": "ok", "message": "LLM module loaded and callable"}
-    except Exception as e:
-        import traceback
-        logging.error(f"LLM health check failed: {e}\n{traceback.format_exc()}")
-        return {"status": "error", "message": str(e), "traceback": traceback.format_exc()}
+    """Check if LLM module can be loaded."""
+    return {"status": "ok", "message": "LLM module loaded", "providers": LLM_PROVIDERS}
 
 
 @app.post('/api/llm/generate-bio')
-async def api_generate_bio(request: Request):
+async def api_generate_bio(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """Generate a concise user biography paragraph from provided inputs.
 
     Expects JSON body with:
@@ -1083,18 +1544,29 @@ async def api_generate_bio(request: Request):
             raise HTTPException(status_code=400, detail=f"messages[{i}] must be a string")
 
     try:
-        bio = generate_user_bio(existing_bio, messages)
+        llm_settings = _resolve_user_llm_settings(current_user["id"])
+        bio = generate_user_bio(
+            existing_bio,
+            messages,
+            provider=llm_settings["provider"],
+            api_key=llm_settings["api_key"],
+            model=llm_settings["model"],
+        )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        # bubble up LLM/API errors as a 502 to indicate upstream dependency failure
         raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
 
     return JSONResponse({"success": True, "bio": bio})
 
 
 @app.post('/api/llm/rewrite-message')
-async def api_rewrite_message(request: Request):
+async def api_rewrite_message(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     """Rewrite a single chat message using the LLM.
 
     Expects a JSON body with:
@@ -1134,6 +1606,7 @@ async def api_rewrite_message(request: Request):
         raise HTTPException(status_code=400, detail="messagesInTheChat must be a list of strings if provided")
 
     try:
+        llm_settings = _resolve_user_llm_settings(current_user["id"])
         rewritten = generate_message_rewrite(
             message,
             speaker_profile=speaker_profile,
@@ -1141,53 +1614,53 @@ async def api_rewrite_message(request: Request):
             temperament=temperament,
             style=style,
             length=length,
+            provider=llm_settings["provider"],
+            api_key=llm_settings["api_key"],
+            model=llm_settings["model"],
         )
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        # treat upstream LLM errors as 502
         raise HTTPException(status_code=502, detail=f"LLM error: {str(e)}")
 
     return JSONResponse({"success": True, "rewritten": rewritten})
 
 
 @app.post("/api/files/fix/{file_id}/preview")
-async def preview_file_fix(file_id: int):
-    """
-    Preview the LLM-suggested fix without applying it.
-    Returns both the original and fixed data for user review.
-    """
-    record = _load_file_record(file_id)
+async def preview_file_fix(
+    file_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Preview the LLM-suggested fix without applying it."""
+    user_id = _require_user_id(current_user)
+    record = _load_file_record(file_id, user_id=user_id)
     if not record:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
 
     name = record.get('name') or str(file_id)
-    rel_path = record.get('path') or record.get('rel_path') or name
-
-    if rel_path.startswith('files_root/'):
-        rel_path = rel_path[len('files_root/'):]
-
-    full_path = os.path.join(FILES_ROOT, rel_path)
-    
-    if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail=f"File not found at path: {rel_path}")
-    
-    # Read the current file
     try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            input_data = json.load(f)
+        content = _download_record_bytes(record, user_id)
+        input_data = json.loads(content.decode("utf-8"))
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"File is not valid JSON: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"File is not valid JSON: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
-    
-    # Transform using LLM
+        raise HTTPException(status_code=404, detail=f"File not found: {e}") from e
+
     try:
-        fixed_data = transform_discussion_json(input_data)
+        llm_settings = _resolve_user_llm_settings(user_id)
+        fixed_data = transform_discussion_json(
+            input_data,
+            provider=llm_settings["provider"],
+            api_key=llm_settings["api_key"],
+            model=llm_settings["model"],
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM transformation failed: {str(e)}")
-    
-    # Return both versions for comparison
+        raise HTTPException(status_code=500, detail=f"LLM transformation failed: {str(e)}") from e
+
     return {
         "success": True,
         "file_id": file_id,
@@ -1199,77 +1672,74 @@ async def preview_file_fix(file_id: int):
 
 
 @app.post("/api/files/fix/{file_id}/apply")
-async def apply_file_fix(file_id: int, request: Request):
+async def apply_file_fix(
+    file_id: int,
+    request: Request,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_id = _require_user_id(current_user)
     body = await request.json()
     fixed_data = body.get("fixed_data")
     overwrite = body.get("overwrite", False)
-    # Defensive: if fixed_data is a string, try to parse it as JSON
-    import json
     if isinstance(fixed_data, str):
         try:
             fixed_data = json.loads(fixed_data)
         except Exception:
             pass
-    """
-    Apply the LLM-suggested fix after user confirmation.
-    Creates a backup before overwriting the original file.
-    """
-    record = _load_file_record(file_id)
+    record = _load_file_record(file_id, user_id=user_id)
     if not record:
         raise HTTPException(status_code=404, detail=f"File with id {file_id} not found")
 
     name = record.get('name') or str(file_id)
-    rel_path = record.get('path') or record.get('rel_path') or name
+    public_path = _public_file_record(record, user_id)["path"]
+    try:
+        original_content = _download_record_bytes(record, user_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found: {e}") from e
 
-    if rel_path.startswith('files_root/'):
-        rel_path = rel_path[len('files_root/'):]
-
-    full_path = os.path.join(FILES_ROOT, rel_path)
-    
-    if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail=f"File not found at path: {rel_path}")
-    
     backup_path = None
     backup_created = False
     new_file_id = file_id
+    fixed_content = json.dumps(fixed_data, indent=2, ensure_ascii=False).encode("utf-8")
+
     if overwrite:
-        # Create backup of original file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = full_path + f'.backup_{timestamp}'
+        base, ext = os.path.splitext(public_path)
+        backup_public = f"{base}.backup_{timestamp}{ext}"
         try:
-            shutil.copy2(full_path, backup_path)
+            upload_bytes(user_id, backup_public, original_content, filename=os.path.basename(backup_public))
+            backup_path = backup_public
             backup_created = True
         except Exception as e:
             logging.warning(f"Could not create backup: {e}")
-        # Save the fixed file (overwrite)
         try:
-            with open(full_path, 'w', encoding='utf-8') as f:
-                json.dump(fixed_data, f, indent=2, ensure_ascii=False)
+            rec = _upsert_storage_file(user_id, public_path, fixed_content, filename=name)
         except Exception as e:
-            # Restore from backup if save failed
             if backup_created:
-                shutil.copy2(backup_path, full_path)
-            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
+                try:
+                    delete_object(storage_key(user_id, backup_public))
+                except Exception:
+                    pass
+            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}") from e
         try:
-            _set_structure_flag(file_id, True)
-        except RuntimeError as exc:
+            _set_structure_flag(file_id, True, user_id)
+        except Exception as exc:
             logger.error("Failed to update structure flag for %s: %s", file_id, exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        new_file_id = rec.get("id", file_id)
     else:
-        # Save as new file with _fix suffix
         base, ext = os.path.splitext(name)
         new_name = f"{base}_fix{ext}"
-        new_rel_path = os.path.join(os.path.dirname(rel_path), new_name) if os.path.dirname(rel_path) else new_name
-        new_full_path = os.path.join(FILES_ROOT, new_rel_path)
+        parent = os.path.dirname(public_path)
+        new_public = normalize_user_rel_path(parent, new_name) if parent else new_name
         try:
-            # Only write an empty object if fixed_data is truly empty or None
             to_write = fixed_data if fixed_data not in (None, "", []) else {}
-            with open(new_full_path, 'w', encoding='utf-8') as f:
-                json.dump(to_write, f, indent=2, ensure_ascii=False)
+            new_content = json.dumps(to_write, indent=2, ensure_ascii=False).encode("utf-8")
+            rec = _upsert_storage_file(user_id, new_public, new_content, filename=new_name)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}")
-        rec = _upsert_file_record(new_full_path)
+            raise HTTPException(status_code=500, detail=f"Error saving fixed file: {str(e)}") from e
         new_file_id = rec.get('id', file_id)
+
     return {
         "success": True,
         "message": "File successfully fixed and saved",
@@ -1278,43 +1748,38 @@ async def apply_file_fix(file_id: int, request: Request):
         "backup_created": backup_created,
         "overwrite": overwrite
     }
-    
-    
-
 
 
 @app.post("/api/files/delete-backup")
-async def delete_backup_file(request: dict):
-    """
-    Delete a backup file created during the fix process.
-    Only deletes files with .backup_ in their name for safety.
-    """
+async def delete_backup_file(
+    request: dict,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Delete a backup file created during the fix process."""
+    user_id = _require_user_id(current_user)
     backup_path = request.get("backup_path")
-    
+
     if not backup_path:
         raise HTTPException(status_code=400, detail="backup_path is required")
-    
-    # Security check: ensure it's actually a backup file
+
     if ".backup_" not in backup_path:
         raise HTTPException(status_code=400, detail="Only backup files can be deleted through this endpoint")
-    
-    # Ensure it's within our FILES_ROOT directory
-    abs_backup_path = os.path.abspath(backup_path)
-    abs_files_root = os.path.abspath(FILES_ROOT)
-    
-    if not abs_backup_path.startswith(abs_files_root):
-        raise HTTPException(status_code=403, detail="Cannot delete files outside of files_root")
-    
-    # Delete the backup file
+
     try:
-        if os.path.exists(backup_path):
-            os.remove(backup_path)
-            logging.info(f"Deleted backup file: {backup_path}")
-            return {"success": True, "message": f"Backup file deleted: {backup_path}"}
-        else:
-            raise HTTPException(status_code=404, detail="Backup file not found")
+        backup_public = normalize_user_rel_path(str(backup_path).lstrip("/"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if ".." in backup_public.split("/"):
+        raise HTTPException(status_code=403, detail="Cannot delete files outside of your storage")
+
+    object_key = storage_key(user_id, backup_public)
+    try:
+        delete_object(object_key)
+        logging.info(f"Deleted backup file: {backup_public}")
+        return {"success": True, "message": f"Backup file deleted: {backup_public}"}
     except Exception as e:
         logging.error(f"Failed to delete backup: {e}")
-        raise HTTPException(status_code=500, detail=f"Error deleting backup: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting backup: {str(e)}") from e
 
 

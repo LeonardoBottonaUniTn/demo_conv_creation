@@ -305,6 +305,7 @@ import ChatInput from './components/ChatInput.vue'
 import Modal from '../shared/Modal.vue'
 import { useUsers } from '../../composables/useUsers'
 import { useActiveFile } from '../../composables/useActiveFile'
+import { useAuthFetch } from '../../composables/useAuthFetch'
 import { getSpeakerColors } from '@/composables/useSpeakerColors'
 import Dropdown from 'primevue/dropdown'
 
@@ -478,7 +479,7 @@ const confirmSave = async () => {
   if (!draftName.value || !lastPayload.value) return
   const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
   try {
-    const resp = await fetch(
+    const resp = await authFetch(
       // preserve '/' in draft filenames so server path-resolution works as expected
       `${apiBase}/api/files/save-draft/${encodeURI(draftName.value)}`,
       {
@@ -515,7 +516,7 @@ const handleMagicForUser = async (name: string) => {
     console.log('Magic payload for', name, payload)
 
     const apiBase = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
-    const resp = await fetch(`${apiBase}/api/llm/generate-bio`, {
+    const resp = await authFetch(`${apiBase}/api/llm/generate-bio`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -699,6 +700,7 @@ watch(
 
 // Shared active file and file content via composable
 const { activeFile, fileContent, loadFile, ensureLoaded } = useActiveFile()
+const { authFetch } = useAuthFetch()
 
 // Determine desired active file based on prop / router (same priority as before)
 const desiredActiveFileRef = computed(() => {
@@ -1107,7 +1109,7 @@ const confirmMessageMagic = async () => {
 
   messageMagicLoading.value = true
   try {
-    const resp = await fetch(`${apiBase}/api/llm/rewrite-message`, {
+    const resp = await authFetch(`${apiBase}/api/llm/rewrite-message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

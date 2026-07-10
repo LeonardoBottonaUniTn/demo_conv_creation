@@ -53,6 +53,8 @@
 
         <ApiTab
           v-if="activeNav === 'api'"
+          :provider="provider"
+          :available-providers="availableProviders"
           :api-key="apiKey"
           :has-api-key="hasApiKey"
           :model="model"
@@ -62,6 +64,7 @@
           :error="error"
           :success="success"
           :last-synced="lastSynced"
+          @update:provider="onProviderChange"
           @update:apiKey="apiKey = $event"
           @update:model="model = $event"
           @reset="resetApiForm"
@@ -110,6 +113,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useAuthFetch } from '../composables/useAuthFetch'
 import { useAuthState } from '../composables/useAuthState'
 import ProfileTab from './settings/ProfileTab.vue'
 import ApiTab from './settings/ApiTab.vue'
@@ -131,7 +135,7 @@ const navItems = [
   {
     key: 'api',
     label: 'API Settings',
-    description: 'Store your Groq API key and pick the default model.',
+    description: 'Store your Groq or OpenAI API key and pick the default model.',
   },
   /*  {
     key: 'appearance',
@@ -158,13 +162,23 @@ const navItems = [
 type NavKey = (typeof navItems)[number]['key']
 
 const { authState } = useAuthState()
+const { authFetch } = useAuthFetch()
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
+type ProviderOption = {
+  id: string
+  label: string
+}
+
 const apiKey = ref('')
 const hasApiKey = ref(false)
+const provider = ref('groq')
+const persistedProvider = ref('groq')
 const model = ref('')
 const availableModels = ref<string[]>([])
+const availableProviders = ref<ProviderOption[]>([])
+const modelsByProvider = ref<Record<string, string[]>>({})
 const persistedModel = ref('')
 
 const initialLoading = ref(true)
@@ -259,9 +273,19 @@ function flagProfileTouched() {
 
 function resetApiForm() {
   apiKey.value = ''
+  provider.value = persistedProvider.value
   model.value = persistedModel.value
+  availableModels.value = modelsByProvider.value[provider.value] || []
   error.value = ''
   success.value = ''
+}
+
+function onProviderChange(nextProvider: string) {
+  provider.value = nextProvider
+  availableModels.value = modelsByProvider.value[nextProvider] || []
+  if (!availableModels.value.includes(model.value)) {
+    model.value = availableModels.value[0] || ''
+  }
 }
 
 function resetProfileForm() {
@@ -336,11 +360,7 @@ async function fetchSettings() {
   error.value = ''
   success.value = ''
   try {
-    const res = await fetch(`${API_BASE}/api/settings`, {
-      headers: {
-        Authorization: `Bearer ${authState.token}`,
-      },
-    })
+    const res = await authFetch(`${API_BASE}/api/settings`)
     if (!res.ok) {
       let detail = 'Failed to load settings'
       try {
@@ -352,14 +372,21 @@ async function fetchSettings() {
       throw new Error(detail)
     }
     const data = (await res.json()) as {
+      provider: string
       model: string
       hasApiKey: boolean
       availableModels: string[]
+      availableProviders: ProviderOption[]
+      modelsByProvider: Record<string, string[]>
     }
+    provider.value = data.provider
+    persistedProvider.value = data.provider
     model.value = data.model
     persistedModel.value = data.model
     hasApiKey.value = data.hasApiKey
     availableModels.value = data.availableModels || []
+    availableProviders.value = data.availableProviders || []
+    modelsByProvider.value = data.modelsByProvider || {}
     lastSynced.value = formatTimestamp()
   } catch (e: any) {
     error.value = e?.message || 'Failed to load settings'
@@ -375,17 +402,17 @@ async function save() {
   success.value = ''
   try {
     const body: Record<string, unknown> = {
+      provider: provider.value,
       model: model.value,
     }
     if (apiKey.value !== '') {
       body.apiKey = apiKey.value
     }
 
-    const res = await fetch(`${API_BASE}/api/settings`, {
+    const res = await authFetch(`${API_BASE}/api/settings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${authState.token}`,
       },
       body: JSON.stringify(body),
     })
@@ -399,10 +426,18 @@ async function save() {
       }
       throw new Error(detail)
     }
-    const data = (await res.json()) as { model: string; hasApiKey: boolean }
+    const data = (await res.json()) as {
+      provider: string
+      model: string
+      hasApiKey: boolean
+      availableModels: string[]
+    }
+    provider.value = data.provider
+    persistedProvider.value = data.provider
     model.value = data.model
     persistedModel.value = data.model
     hasApiKey.value = data.hasApiKey
+    availableModels.value = data.availableModels || []
     apiKey.value = ''
     lastSynced.value = formatTimestamp()
     success.value = 'Settings saved successfully.'

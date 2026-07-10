@@ -6,6 +6,7 @@ import TelegramChat from '../components/chat/TelegramChat.vue'
 import FileSelectorModal from '../components/shared/FileSelectorModal.vue'
 import { useUsers } from '../composables/useUsers'
 import { useGraphData } from '../composables/useGraphData'
+import { useAuthFetch } from '../composables/useAuthFetch'
 
 interface ChatMessage {
   id: number
@@ -19,6 +20,7 @@ const { loadUsers } = useUsers()
 const { loadDiscussionData, discussionRoot } = useGraphData()
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:8000'
+const { authFetch } = useAuthFetch()
 
 const thesisAuthor = ref<{ name: string }>({ name: 'Thesis' })
 
@@ -87,7 +89,7 @@ const loadSelectedFile = async (filename?: string | undefined) => {
   // If the loaded file is a draft (contains a `discussion` array), push those messages into the chat.
   try {
     // preserve folder separators when requesting files by path
-    const resp = await fetch(`${API_BASE}/api/files/${encodeURI(filename)}`)
+    const resp = await authFetch(`${API_BASE}/api/files/${encodeURI(filename)}`)
     if (resp.ok) {
       const raw = await resp.json()
       if (raw && Array.isArray(raw.discussion) && raw.discussion.length > 0) {

@@ -4,6 +4,9 @@ import DiscussionPage from '../views/DiscussionPage.vue'
 import FilesPage from '../views/FilesPage.vue'
 import LoginPage from '../views/LoginPage.vue'
 import SettingsPage from '../views/SettingsPage.vue'
+import AnnotationPage from '../views/AnnotationPage.vue'
+import { isTokenExpired } from '../composables/authToken'
+import { useAuthState } from '../composables/useAuthState'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -56,6 +59,15 @@ const router = createRouter({
         requiresAuth: true,
       },
     },
+    {
+      path: '/annotate/:file?',
+      name: 'annotate',
+      component: AnnotationPage,
+      meta: {
+        title: 'Discussion Creator - Annotate Conversation',
+        requiresAuth: true,
+      },
+    },
     // Catch-all route for 404 pages
     {
       path: '/:pathMatch(.*)*',
@@ -65,22 +77,32 @@ const router = createRouter({
 })
 
 // Add navigation guards for dynamic page titles and simple auth
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   if (to.meta?.title) {
     document.title = to.meta.title as string
   }
 
-   const requiresAuth = Boolean(to.meta && (to.meta as any).requiresAuth)
-   const token = localStorage.getItem('auth_token')
+  const requiresAuth = Boolean(to.meta && (to.meta as any).requiresAuth)
+  const token = localStorage.getItem('auth_token')
+  const { refreshAccessToken, clearAuth } = useAuthState()
 
-   if (requiresAuth && !token && to.name !== 'login') {
-     return next({ name: 'login', query: { redirect: to.fullPath } })
-   }
+  if (requiresAuth) {
+    if (!token) {
+      return next({ name: 'login', query: { redirect: to.fullPath } })
+    }
+    if (isTokenExpired(token)) {
+      const refreshed = await refreshAccessToken()
+      if (!refreshed) {
+        clearAuth()
+        return next({ name: 'login', query: { redirect: to.fullPath } })
+      }
+    }
+  }
 
-   if (to.name === 'login' && token) {
-     // If already logged in, avoid showing login page again
-     return next((from && from.name) ? from : { name: 'home' })
-   }
+  if (to.name === 'login' && token && !isTokenExpired(token)) {
+    // If already logged in, avoid showing login page again
+    return next((from && from.name) ? from : { name: 'home' })
+  }
   next()
 })
 

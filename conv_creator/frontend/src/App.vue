@@ -55,4 +55,10 @@ body {
 .discussion-page {
   overflow: hidden !important;
 }
+
+.annotation-page {
+  overflow: hidden !important;
+  flex: 1;
+  min-height: 0;
+}
 </style>

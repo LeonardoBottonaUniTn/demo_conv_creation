@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useAuthFetch } from './useAuthFetch'
 
 /**
  * Shared composable to provide the currently active file reference
@@ -8,6 +9,7 @@ import { ref } from 'vue'
  * const { activeFile, fileContent, loadFile } = useActiveFile()
  */
 export function useActiveFile() {
+  const { authFetch } = useAuthFetch()
   const activeFile = ref<string | undefined>(undefined)
   const fileContent = ref<any>(null)
 
@@ -19,7 +21,7 @@ export function useActiveFile() {
       // remember which file is active
       activeFile.value = fileRef
       // use encodeURI to preserve '/' characters in nested paths
-      const res = await fetch(`${apiBase}/api/files/${encodeURI(fileRef)}`, {
+      const res = await authFetch(`${apiBase}/api/files/${encodeURI(fileRef)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       })

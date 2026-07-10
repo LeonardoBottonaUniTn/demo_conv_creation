@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, Sequence
+from typing import Any, Dict
 
 import httpx
 from supabase import Client, create_client
@@ -22,86 +22,47 @@ _supabase_client: Client | None = None
 _JWKS_CACHE: Dict[str, Any] = {"payload": None, "expires_at": 0.0}
 _JWKS_TTL_SECONDS = 60.0
 
-_DEFAULT_PROFILE = "cloud"
-_PROFILE_ENV_VAR = "SUPABASE_PROFILE"
 
-
-def _active_profile() -> str:
-    raw = os.getenv(_PROFILE_ENV_VAR, _DEFAULT_PROFILE)
-    profile = (raw or _DEFAULT_PROFILE).strip().lower()
-    return profile or _DEFAULT_PROFILE
-
-
-def _candidate_env_names(base: str, legacy: Sequence[str]) -> list[str]:
-    profile = _active_profile()
-    names: list[str] = []
-    prefix = profile.upper() if profile else ""
-    if prefix:
-        names.append(f"{prefix}_{base}")
-        for legacy_name in legacy:
-            names.append(f"{prefix}_{legacy_name}")
-    names.append(base)
-    names.extend(legacy)
-
-    ordered: list[str] = []
-    seen: set[str] = set()
+def _get_env_first(*names: str) -> str | None:
     for name in names:
-        norm = name.strip()
-        if not norm or norm in seen:
-            continue
-        ordered.append(norm)
-        seen.add(norm)
-    return ordered
-
-
-def _read_env(base: str, legacy: Sequence[str] = (), *, required: bool = True) -> str | None:
-    for env_name in _candidate_env_names(base, legacy):
-        value = os.getenv(env_name)
+        value = os.getenv(name)
         if value:
-            return value
-    if required:
-        candidates = ", ".join(_candidate_env_names(base, legacy))
-        raise RuntimeError(
-            f"Missing Supabase setting for profile '{_active_profile()}'. Set one of: {candidates}."
-        )
+            return value.strip()
     return None
 
 
-def get_active_supabase_profile() -> str:
-    """Return the currently selected Supabase profile (cloud/local/etc.)."""
-    return _active_profile()
+def _is_http_url(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
 
 
-def get_supabase_url() -> str:
-    value = _read_env("SUPABASE_URL", legacy=("DATABASE_URL",))
-    if not value:
-        raise RuntimeError("SUPABASE_URL is not configured.")
-    return value
-
-
-def get_supabase_anon_key() -> str:
-    value = _read_env(
-        "SUPABASE_ANON_KEY",
-        legacy=("SUPABASE_KEY", "DATABASE_ANON_KEY", "DATABASE_PUBLISHABLE_KEY"),
+def _resolve_supabase_url() -> str:
+    # Prefer SUPABASE_URL: DATABASE_URL is often a postgres connection string.
+    for env_name in ("SUPABASE_URL", "DATABASE_URL"):
+        value = os.getenv(env_name)
+        if value and _is_http_url(value):
+            return value
+    raise RuntimeError(
+        "SUPABASE_URL (or an HTTP(S) DATABASE_URL) must be set before accessing Supabase."
     )
+
+
+_ANON_KEY_ENV_NAMES = (
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "DATABASE_ANON_KEY",
+    "DATABASE_PUBLISHABLE_KEY",
+    "SUPABASE_KEY",
+)
+
+
+def _resolve_supabase_anon_key() -> str:
+    value = _get_env_first(*_ANON_KEY_ENV_NAMES)
     if not value:
-        raise RuntimeError("Supabase anon/public key is not configured.")
+        raise RuntimeError(
+            "Set one of DATABASE_ANON_KEY, SUPABASE_ANON_KEY, or SUPABASE_PUBLISHABLE_KEY "
+            "before accessing Supabase."
+        )
     return value
-
-
-def get_supabase_service_role_key() -> str:
-    value = _read_env("SUPABASE_SERVICE_ROLE_KEY", legacy=("SERVICE_ROLE_KEY",))
-    if not value:
-        raise RuntimeError("Supabase service role key is not configured.")
-    return value
-
-
-def get_supabase_db_url(required: bool = True) -> str | None:
-    return _read_env(
-        "SUPABASE_DB_URL",
-        legacy=("DATABASE_IPv4_URL", "DATABASE_URL"),
-        required=required,
-    )
 
 
 def get_supabase_client() -> Client:
@@ -110,11 +71,44 @@ def get_supabase_client() -> Client:
     if _supabase_client is not None:
         return _supabase_client
 
-    supabase_url = get_supabase_url()
-    anon_key = get_supabase_anon_key()
+    supabase_url = _resolve_supabase_url()
+    supabase_anon_key = _resolve_supabase_anon_key()
 
-    _supabase_client = create_client(supabase_url, anon_key)
+    _supabase_client = create_client(supabase_url, supabase_anon_key)
     return _supabase_client
+
+
+def get_supabase_url() -> str:
+    return _resolve_supabase_url()
+
+
+def get_supabase_anon_key() -> str:
+    return _resolve_supabase_anon_key()
+
+
+def _resolve_service_role_key() -> str:
+    value = _get_env_first("SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY")
+    if not value:
+        raise RuntimeError(
+            "SUPABASE_SERVICE_ROLE_KEY must be set for Supabase Storage operations."
+        )
+    return value
+
+
+_supabase_service_client: Client | None = None
+
+
+def get_supabase_service_client() -> Client:
+    """Return a singleton Supabase client using the service role key."""
+    global _supabase_service_client
+    if _supabase_service_client is not None:
+        return _supabase_service_client
+
+    _supabase_service_client = create_client(
+        _resolve_supabase_url(),
+        _resolve_service_role_key(),
+    )
+    return _supabase_service_client
 
 
 def get_jwks() -> Dict[str, Any]:
@@ -124,7 +118,7 @@ def get_jwks() -> Dict[str, Any]:
     if cached and now < _JWKS_CACHE["expires_at"]:
         return cached
 
-    url = f"{get_supabase_url().rstrip('/')}/auth/v1/keys"
+    url = f"{get_supabase_url().rstrip('/')}/auth/v1/.well-known/jwks.json"
     try:
         response = httpx.get(url, timeout=10.0)
         response.raise_for_status()

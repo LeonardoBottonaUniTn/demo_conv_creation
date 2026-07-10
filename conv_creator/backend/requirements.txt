@@ -4,6 +4,7 @@ starlette
 python-multipart
 python-dotenv
 groq
+openai
 passlib[bcrypt]
 python-jose[cryptography]
 supabase

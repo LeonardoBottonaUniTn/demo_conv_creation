@@ -175,6 +175,23 @@
                     }}
                   </div>
                 </div>
+
+                <div
+                  v-if="file.annotationStatus"
+                  class="annotation-overlay"
+                  :title="
+                    file.annotationStatus === 'completed'
+                      ? 'Annotations completed'
+                      : 'Annotations in progress'
+                  "
+                >
+                  <div class="annotation-badge" :class="file.annotationStatus">
+                    <i class="pi pi-bookmark"></i>
+                    <span>{{
+                      file.annotationStatus === 'completed' ? 'Annotated' : 'Annotating'
+                    }}</span>
+                  </div>
+                </div>
                 <div class="file-icon">
                   <i v-if="file.type === 'json'" class="pi pi-file" style="font-size: 1.5rem"></i>
                   <i
@@ -405,8 +422,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthFetch } from '../composables/useAuthFetch'
 
 const router = useRouter()
+const { authFetch, authHeaders } = useAuthFetch()
 
 interface FileItem {
   id: string
@@ -418,6 +437,7 @@ interface FileItem {
   content?: any
   structureOk?: number | null
   category?: string | null
+  annotationStatus?: 'in_progress' | 'completed' | null
 }
 
 const files = ref<FileItem[]>([])
@@ -486,7 +506,7 @@ async function fetchFiles() {
     const folderQuery = currentFolder.value
       ? `?folder=${encodeURIComponent(currentFolder.value)}`
       : ''
-    const res = await fetch(`${API_BASE}/api/files${folderQuery}`)
+    const res = await authFetch(`${API_BASE}/api/files${folderQuery}`)
     if (!res.ok) throw new Error(`Failed to list files (${res.status})`)
     const list = await res.json()
     files.value = list.map((f: any) => {
@@ -503,6 +523,7 @@ async function fetchFiles() {
         content: null,
         structureOk: typeof f.structure_ok !== 'undefined' ? f.structure_ok : null,
         category: typeof f.category !== 'undefined' ? f.category : null,
+        annotationStatus: f.annotation_status ?? null,
       }
     })
     // If we're at root, show only top-level files (those not living in subfolders).
@@ -531,7 +552,7 @@ async function fetchFiles() {
       })
     }
     // also fetch folders (full list) and compute visible children
-    const resF = await fetch(`${API_BASE}/api/folders`)
+    const resF = await authFetch(`${API_BASE}/api/folders`)
     if (resF.ok) {
       const js = await resF.json()
       allFolders.value = js.folders || []
@@ -576,7 +597,7 @@ const handleFiles = (fileList: File[]) => {
     form.append('file', file)
     if (currentFolder.value) form.append('path', currentFolder.value)
     try {
-      const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: form })
+      const res = await authFetch(`${API_BASE}/api/upload`, { method: 'POST', body: form })
       if (!res.ok) throw new Error('Upload failed')
       const data = await res.json()
       files.value.push({
@@ -616,7 +637,7 @@ const previewFile = (file: FileItem) => {
       console.log('Fetching preview for file', file)
 
       const url = getFileApiUrl(file, 'get')
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (!res.ok) {
         previewModal.value.content = `Failed to load file: ${res.status}`
         return
@@ -692,7 +713,7 @@ async function openStructureWarning(file: FileItem) {
   warningModal.value = { show: true, file, issues: [], preview: '' }
   try {
     const url = getFileApiUrl(file, 'get')
-    const res = await fetch(url)
+    const res = await authFetch(url)
     if (!res.ok) {
       warningModal.value.issues = [`Failed to fetch file: ${res.status}`]
       return
@@ -743,7 +764,7 @@ const attemptFix = async () => {
     fixPreviewModal.value.show = true
 
     // Request a preview of the fix
-    const response = await fetch(`http://localhost:8000/api/files/fix/${file.id}/preview`, {
+    const response = await authFetch(`${API_BASE}/api/files/fix/${file.id}/preview`, {
       method: 'POST',
     })
 
@@ -786,7 +807,7 @@ const applyFix = async () => {
   const overwrite = !keepOriginal
 
   try {
-    const response = await fetch(`http://localhost:8000/api/files/fix/${file.id}/apply`, {
+    const response = await authFetch(`${API_BASE}/api/files/fix/${file.id}/apply`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -847,7 +868,7 @@ const deleteFile = (fileId: string) => {
         const file = files.value.find((f) => f.id === fileId)
         if (!file) throw new Error('File not found')
         const url = getFileApiUrl(file, 'delete')
-        const res = await fetch(url, { method: 'DELETE' })
+        const res = await authFetch(url, { method: 'DELETE' })
         if (!res.ok) throw new Error('Delete failed')
         files.value = files.value.filter((f) => f.id !== fileId)
         selectedFiles.value = selectedFiles.value.filter((id) => id !== fileId)
@@ -869,7 +890,7 @@ const deleteSelectedFiles = () => {
           const file = files.value.find((f) => f.id === id)
           if (!file) throw new Error('File not found')
           const url = getFileApiUrl(file, 'delete')
-          const res = await fetch(url, { method: 'DELETE' })
+          const res = await authFetch(url, { method: 'DELETE' })
           if (!res.ok) throw new Error('Delete failed')
           files.value = files.value.filter((f) => f.id !== id)
           selectedFiles.value = selectedFiles.value.filter((i) => i !== id)
@@ -893,7 +914,7 @@ const createFolder = async () => {
     ? currentFolder.value + '/' + newFolderName.value
     : newFolderName.value
   try {
-    const res = await fetch(`${API_BASE}/api/folders`, {
+    const res = await authFetch(`${API_BASE}/api/folders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: target }),
@@ -910,7 +931,7 @@ const onDeleteFolder = async (folderName: string) => {
   const target = currentFolder.value ? currentFolder.value + '/' + folderName : folderName
   if (!confirm(`Delete folder '${target}' and all its contents? This cannot be undone.`)) return
   try {
-    const res = await fetch(`${API_BASE}/api/folders/${encodeURI(target)}`, {
+    const res = await authFetch(`${API_BASE}/api/folders/${encodeURI(target)}`, {
       method: 'DELETE',
     })
     if (!res.ok) throw new Error('Delete failed')
@@ -934,7 +955,7 @@ const onCreateSubfolder = async (folderName: string) => {
     ? currentFolder.value + '/' + folderName + '/' + sub
     : folderName + '/' + sub
   try {
-    const res = await fetch(`${API_BASE}/api/folders`, {
+    const res = await authFetch(`${API_BASE}/api/folders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: target }),
@@ -980,7 +1001,7 @@ const moveFiles = async (targetsArg?: string[], destArg?: string) => {
       return t
     })
 
-    const res = await fetch(`${API_BASE}/api/files/move`, {
+    const res = await authFetch(`${API_BASE}/api/files/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targets: targetsToSend, dest }),
@@ -1167,6 +1188,35 @@ const formatDate = (date: Date) => {
   top: 8px;
   right: 8px;
   z-index: 40;
+}
+
+.annotation-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 40;
+}
+
+.annotation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.annotation-badge.in_progress {
+  background: #f59e0b;
+  color: #451a03;
+}
+
+.annotation-badge.completed {
+  background: #8b5cf6;
+  color: #ffffff;
 }
 .structure-banner {
   display: inline-flex;
