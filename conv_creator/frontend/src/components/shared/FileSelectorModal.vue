@@ -29,7 +29,7 @@
                 class="annotation-pill"
                 :class="f.annotationStatus"
               >
-                {{ f.annotationStatus === 'completed' ? 'Annotated' : 'Annotating' }}
+                {{ f.annotationStatus === 'completed' ? 'Labeled' : 'Labeling' }}
               </span>
             </li>
           </ul>

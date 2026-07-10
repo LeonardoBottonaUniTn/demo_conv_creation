@@ -144,8 +144,8 @@ function handleSave() {
     <div class="schema-editor">
       <header class="editor-header">
         <div>
-          <h2>Customize annotation fields</h2>
-          <p>Add, rename, or remove fields and label options for this annotation template.</p>
+          <h2>Customize labeling fields</h2>
+          <p>Add, rename, or remove fields and label options for this labeling template.</p>
         </div>
         <button type="button" class="icon-btn" aria-label="Close" @click="emit('close')">×</button>
       </header>

@@ -56,6 +56,14 @@ body {
   overflow: hidden !important;
 }
 
+/* Lock the whole app to the viewport height on the discussion route so the
+   only things that can scroll are the inner panels (e.g. the chat message list). */
+#app:has(.discussion-page) {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .annotation-page {
   overflow: hidden !important;
   flex: 1;

@@ -990,7 +990,7 @@ async def update_annotation_schema(
         raise HTTPException(
             status_code=503,
             detail=(
-                "Annotation schema storage is not available yet. "
+                "Labeling schema storage is not available yet. "
                 "Set DATABASE_IPv4_URL to your Supabase Postgres URI (same project as SUPABASE_URL), "
                 "then run: python backend/scripts/setup_db.py"
             ),
@@ -1014,7 +1014,7 @@ async def update_annotation_schema(
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Annotation schema storage is not available yet. "
+                    "Labeling schema storage is not available yet. "
                     "Set DATABASE_IPv4_URL to your Supabase Postgres URI (same project as SUPABASE_URL), "
                     "then run: python backend/scripts/setup_db.py"
                 ),

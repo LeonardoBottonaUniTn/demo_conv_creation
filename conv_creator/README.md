@@ -10,6 +10,8 @@ A Vue.js application for creating and visualizing hierarchical discussion trees 
 - **Dynamic User Personas**: AI-generated speakers with distinct stances and communication styles
 - **Responsive Design**: Optimized for both desktop and mobile viewing
 - **Multiple View Modes**: Switch between tree view and focused single-branch view
+- **Conversation Annotation / Labeling**: Annotate conversations with customizable schemas, including message-level and conversation-level fields, progress tracking, and a built-in schema editor
+- **Supabase-backed Persistence**: User authentication, file storage, and metadata stored in a managed Postgres database
 
 ## 🏗️ Architecture
 
@@ -19,6 +21,31 @@ A Vue.js application for creating and visualizing hierarchical discussion trees 
 - **Build Tool**: Vite
 - **UI Components**: Custom components for chat and graph visualization
 - **State Management**: Vue Composition API with composables
+
+### Backend (FastAPI + Supabase)
+
+- **API**: FastAPI (Python) serving file, folder, user, and LLM routes
+- **Database**: **Supabase Postgres** — the `files` table stores file metadata and the `user_settings` table stores per-user API keys, model/provider preferences, and the saved `annotation_schema`
+- **Auth**: Supabase authentication; records are scoped per user (`created_by` / `user_id`)
+- **Storage**: Supabase Storage for uploaded file contents
+
+#### Database setup
+
+The schema is applied idempotently from a script. Configure `.env` (see `SUPABASE_URL`, Supabase keys, and `DATABASE_IPv4_URL` — the direct Postgres connection string), then run:
+
+```sh
+python backend/scripts/setup_db.py
+```
+
+This creates/updates the `files` and `user_settings` tables.
+
+### Annotation / Labeling
+
+The annotation page lets you label a selected conversation:
+
+- **Customizable schema**: Define message-level and conversation-level fields via the schema editor; schemas are saved per user in `user_settings.annotation_schema`
+- **Progress tracking**: Per-conversation annotation progress and completion status
+- **Persistence**: Annotations are stored alongside the conversation data
 
 ## 📁 Project Structure
 
@@ -38,7 +65,15 @@ src/
 │   └── shared/               # Reusable components
 ├── composables/              # Vue composables for state management
 ├── types/                    # TypeScript type definitions
-└── backend/                  # Python data processing scripts TODO
+└── views/                    # Page views (Files, Discussion, Annotation, ...)
+
+backend/
+├── main.py                   # FastAPI app entrypoint
+├── routes/                   # API routes (files, folders, users, llm, upload, ...)
+├── database.py               # Supabase Postgres data access (files, settings)
+├── supabase_client.py        # Supabase client setup
+├── file_storage.py           # Supabase Storage helpers
+└── scripts/setup_db.py       # Idempotent database schema setup
 ```
 
 ## 🛠️ Technology Stack
@@ -68,22 +103,22 @@ node --version  # Should be v20.19.0 or higher
 
 1. **Clone the repository**
 
-   ```sh
-   git clone <repository-url>
-   cd conv_creator
-   ```
+```sh
+ git clone <repository-url>
+ cd conv_creator
+```
 
 2. **Install dependencies**
 
-   ```sh
-   npm install
-   ```
+```sh
+ npm install
+```
 
 3. **Start development server**
 
-   ```sh
-   npm run dev
-   ```
+```sh
+ npm run dev
+```
 
 4. **Open your browser**
    Navigate to `http://localhost:5173`
@@ -113,11 +148,6 @@ npm run preview      # Preview production build locally
 - **ChatHeader**: Chat title and controls
 
 ## 🔧 Development Tools
-
-### IDE Setup
-
-- **Recommended**: [VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar)
-- **Disable**: Vetur extension (conflicts with Volar)
 
 ### Version Management
 

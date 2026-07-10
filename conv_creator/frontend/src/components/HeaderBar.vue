@@ -31,7 +31,7 @@
         <nav class="section-links">
           <router-link to="/files" class="section-link">Files</router-link>
           <router-link to="/discussion" class="section-link">Discussion</router-link>
-          <router-link to="/annotate" class="section-link">Annotate</router-link>
+          <router-link to="/annotate" class="section-link">Label</router-link>
         </nav>
       </div>
 

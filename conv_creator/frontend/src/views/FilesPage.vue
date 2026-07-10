@@ -133,38 +133,51 @@
                 @dragstart="onDragStart(file, $event)"
                 @dragend="onDragEnd"
               >
-                <!-- Overlay in top-right: show warning for invalid files, otherwise show category label when structure is OK -->
+                <!-- Overlay in top-right: structure/category badge and annotation status -->
                 <div
-                  class="structure-overlay"
-                  v-if="file.structureOk === 0"
-                  title="Structure warning"
+                  v-if="file.structureOk === 0 || file.structureOk === 1 || file.annotationStatus"
+                  class="card-badges-overlay"
                 >
+                  <div
+                    v-if="file.annotationStatus"
+                    class="annotation-badge"
+                    :class="file.annotationStatus"
+                    :title="
+                      file.annotationStatus === 'completed'
+                        ? 'Labeling completed'
+                        : 'Labeling in progress'
+                    "
+                  >
+                    <i class="pi pi-bookmark"></i>
+                    <span>{{
+                      file.annotationStatus === 'completed' ? 'Labeled' : 'Labeling'
+                    }}</span>
+                  </div>
+
                   <button
+                    v-if="file.structureOk === 0"
                     class="structure-banner"
                     @click.stop.prevent="openStructureWarning(file)"
                     aria-label="Open structure warning"
+                    title="Structure warning"
                   >
                     <i class="pi pi-exclamation-triangle" style="font-size: 1rem"></i>
                     <span>Structure warning</span>
                   </button>
-                </div>
 
-                <div
-                  class="structure-overlay"
-                  v-else-if="file.structureOk === 1"
-                  :title="
-                    file.category
-                      ? file.category === 'discussion'
-                        ? 'Discussion tree'
-                        : file.category === 'draft'
-                          ? 'Draft file'
-                          : file.category
-                      : 'Valid file'
-                  "
-                >
                   <div
+                    v-else-if="file.structureOk === 1"
                     class="category-badge"
                     :class="file.category ? file.category.toLowerCase() : 'unknown'"
+                    :title="
+                      file.category
+                        ? file.category === 'discussion'
+                          ? 'Discussion tree'
+                          : file.category === 'draft'
+                            ? 'Draft file'
+                            : file.category
+                        : 'Valid file'
+                    "
                   >
                     {{
                       file.category === 'discussion'
@@ -173,23 +186,6 @@
                           ? 'Draft'
                           : file.category || 'File'
                     }}
-                  </div>
-                </div>
-
-                <div
-                  v-if="file.annotationStatus"
-                  class="annotation-overlay"
-                  :title="
-                    file.annotationStatus === 'completed'
-                      ? 'Annotations completed'
-                      : 'Annotations in progress'
-                  "
-                >
-                  <div class="annotation-badge" :class="file.annotationStatus">
-                    <i class="pi pi-bookmark"></i>
-                    <span>{{
-                      file.annotationStatus === 'completed' ? 'Annotated' : 'Annotating'
-                    }}</span>
                   </div>
                 </div>
                 <div class="file-icon">
@@ -844,19 +840,34 @@ const closeFixPreview = () => {
   fixPreviewModal.value.loading = false
 }
 
-const downloadFile = (file: FileItem) => {
-  // open the appropriate endpoint in a new tab (backend sets Content-Disposition)
+const downloadFile = async (file: FileItem) => {
+  // Fetch through authFetch so the Authorization header is sent (a plain
+  // window.open navigation omits it and the backend responds 401).
   const url = getFileApiUrl(file, 'download')
-  window.open(url, '_blank')
+  try {
+    const res = await authFetch(url)
+    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = file.name || String(file.id)
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch (err) {
+    alert('Failed to download file: ' + String(err))
+  }
 }
 
-const downloadSelectedFiles = () => {
-  selectedFiles.value.forEach((id) => {
+const downloadSelectedFiles = async () => {
+  for (const id of selectedFiles.value) {
     const file = files.value.find((f) => f.id === id)
     if (file) {
-      downloadFile(file)
+      await downloadFile(file)
     }
-  })
+  }
 }
 
 const deleteFile = (fileId: string) => {
@@ -1182,19 +1193,15 @@ const formatDate = (date: Date) => {
   background: #95a5a6;
 }
 
-/* overlay badge for invalid files */
-.structure-overlay {
+/* top-right badge row: category/structure warning + annotation status */
+.card-badges-overlay {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 40;
-}
-
-.annotation-overlay {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .annotation-badge {

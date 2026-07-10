@@ -20,7 +20,7 @@
         </router-link>
 
         <router-link to="/annotate" class="feature-card clickable-card">
-          <h3>Annotate Conversations</h3>
+          <h3>Label Conversations</h3>
           <p>Label and review generated conversation turns for analysis</p>
         </router-link>
       </div>

@@ -64,7 +64,7 @@ const router = createRouter({
       name: 'annotate',
       component: AnnotationPage,
       meta: {
-        title: 'Discussion Creator - Annotate Conversation',
+        title: 'Discussion Creator - Label Conversation',
         requiresAuth: true,
       },
     },

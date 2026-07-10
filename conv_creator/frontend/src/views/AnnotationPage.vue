@@ -79,7 +79,7 @@ function onFileSelected(path: string) {
 async function handleSave() {
   saveMessage.value = null
   const ok = await save()
-  saveMessage.value = ok ? 'Annotations saved.' : 'Save failed.'
+  saveMessage.value = ok ? 'Labels saved.' : 'Save failed.'
   if (ok) setTimeout(() => (saveMessage.value = null), 3000)
 }
 
@@ -87,7 +87,7 @@ async function handleSchemaSave(nextSchema: AnnotationSchema) {
   schemaMessage.value = null
   applySchema(nextSchema, true)
   showSchemaEditor.value = false
-  schemaMessage.value = 'Annotation template updated.'
+  schemaMessage.value = 'Labeling template updated.'
   setTimeout(() => (schemaMessage.value = null), 3000)
 }
 
@@ -118,7 +118,7 @@ onMounted(async () => {
   <div class="annotation-page">
     <header class="page-header">
       <div class="header-left">
-        <h1>Annotate Conversation</h1>
+        <h1>Label Conversation</h1>
         <p v-if="filePath" class="file-name">{{ filePath }}</p>
         <p v-else class="file-name muted">No file selected</p>
       </div>
@@ -126,7 +126,7 @@ onMounted(async () => {
       <div class="header-right">
         <div v-if="messages.length > 0" class="progress-block">
           <span class="progress-label">
-            {{ annotatedCount }} / {{ messages.length }} annotated ({{ progressPercent }}%)
+            {{ annotatedCount }} / {{ messages.length }} labeled ({{ progressPercent }}%)
           </span>
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: `${progressPercent}%` }"></div>
@@ -145,7 +145,7 @@ onMounted(async () => {
           :disabled="!filePath || saving || !dirty"
           @click="handleSave"
         >
-          {{ saving ? 'Saving…' : 'Save annotations' }}
+          {{ saving ? 'Saving…' : 'Save labels' }}
         </button>
       </div>
     </header>
@@ -158,14 +158,14 @@ onMounted(async () => {
     <div v-if="loading" class="state-panel">Loading conversation…</div>
 
     <div v-else-if="!filePath" class="state-panel">
-      <p>Select a draft conversation file to begin annotating.</p>
+      <p>Select a draft conversation file to begin labeling.</p>
       <button class="btn btn-primary" type="button" @click="showFileSelector = true">
         Select file
       </button>
     </div>
 
     <div v-else-if="messages.length === 0" class="state-panel">
-      <p>This file has no conversation messages to annotate.</p>
+      <p>This file has no conversation messages to label.</p>
       <button class="btn btn-secondary" type="button" @click="showFileSelector = true">
         Choose another file
       </button>
@@ -176,7 +176,7 @@ onMounted(async () => {
         <div class="panel-title">
           <h2>Messages</h2>
           <button class="link-btn" type="button" @click="selectNextUnannotated">
-            Next unannotated
+            Next unlabeled
           </button>
         </div>
 
@@ -217,11 +217,11 @@ onMounted(async () => {
 
       <section class="annotation-panel">
         <div class="panel-title">
-          <h2>Annotation</h2>
+          <h2>Labeling</h2>
         </div>
 
         <div v-if="!selectedMessage" class="empty-annotation">
-          Select a message to annotate it.
+          Select a message to label it.
         </div>
 
         <template v-else>
@@ -292,7 +292,7 @@ onMounted(async () => {
     <FileSelectorModal
       v-if="showFileSelector"
       title="Select a draft conversation"
-      confirm-label="Open for annotation"
+      confirm-label="Open for labeling"
       @select="onFileSelected"
       @close="showFileSelector = false"
     />

@@ -263,9 +263,11 @@ const toggleGraphCollapsed = () => {
 
 <style scoped>
 .discussion-page {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
